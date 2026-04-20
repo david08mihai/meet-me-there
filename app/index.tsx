@@ -15,8 +15,10 @@ export default function Index() {
     );
   }
 
+  const isEmailConfirmed = !!user?.email_confirmed_at;
+
   if (!user) return <Redirect href="/welcome" />;
-  if (!user.emailVerified) return <Redirect href="/verify-email" />;
+  if (!isEmailConfirmed) return <Redirect href="/verify-email" />;
   return <Redirect href="/map" />;
 }
 

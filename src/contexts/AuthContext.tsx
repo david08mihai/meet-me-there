@@ -1,10 +1,3 @@
-import {
-  User,
-  onAuthStateChanged,
-  reload,
-  sendEmailVerification,
-  signOut as firebaseSignOut,
-} from 'firebase/auth';
 import React, {
   ReactNode,
   createContext,
@@ -12,11 +5,13 @@ import React, {
   useEffect,
   useState,
 } from 'react';
+import { Session, User } from '@supabase/supabase-js';
 
-import { firebaseAuth } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 
 type AuthContextValue = {
   user: User | null;
+  session: Session | null;
   initializing: boolean;
   signOut: () => Promise<void>;
   reloadUser: () => Promise<void>;
@@ -27,35 +22,65 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(firebaseAuth, (firebaseUser) => {
-      setUser(firebaseUser);
+    let mounted = true;
+
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!mounted) return;
+
+      if (error) {
+        console.error('Error getting session:', error);
+      }
+
+      setSession(data.session ?? null);
+      setUser(data.session?.user ?? null);
       setInitializing(false);
     });
-    return unsubscribe;
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession ?? null);
+      setUser(nextSession?.user ?? null);
+      setInitializing(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
-  const signOut = () => firebaseSignOut(firebaseAuth);
+  const signOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+  };
 
   const reloadUser = async () => {
-    const current = firebaseAuth.currentUser;
-    if (!current) return;
-    await reload(current);
-    setUser(firebaseAuth.currentUser ? { ...firebaseAuth.currentUser } : null);
+    const { data, error } = await supabase.auth.getUser();
+    if (error) throw error;
+    setUser(data.user ?? null);
   };
 
   const resendVerificationEmail = async () => {
-    const current = firebaseAuth.currentUser;
-    if (!current) return;
-    await sendEmailVerification(current);
+    if (!user?.email) return;
+
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: user.email,
+    });
+
+    if (error) throw error;
   };
 
   return (
     <AuthContext.Provider
       value={{
         user,
+        session,
         initializing,
         signOut,
         reloadUser,
