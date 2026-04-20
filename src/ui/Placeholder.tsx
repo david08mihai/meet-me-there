@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Screen } from './Screen';
@@ -5,43 +6,49 @@ import { theme } from './theme';
 
 type Props = {
   title: string;
-  owner: string;
+  owner?: string;
   description?: string;
 };
 
-export function Placeholder({ title, owner, description }: Props) {
+export function Placeholder({ title }: Props) {
   return (
     <Screen>
       <View style={styles.wrapper}>
-        <Text style={styles.badge}>TODO · {owner}</Text>
+        <View style={styles.iconCircle}>
+          <Ionicons name="construct-outline" size={32} color={theme.colors.primary} />
+        </View>
         <Text style={styles.title}>{title}</Text>
-        {description ? <Text style={styles.body}>{description}</Text> : null}
+        <Text style={styles.body}>Coming soon.</Text>
       </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: { gap: theme.spacing.md },
-  badge: {
-    alignSelf: 'flex-start',
-    fontSize: theme.fontSize.xs,
-    fontWeight: '700',
-    color: theme.colors.primary,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.sm,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: theme.spacing.xs,
-    overflow: 'hidden',
+  wrapper: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.md,
+  },
+  iconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#EEF0FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: theme.spacing.sm,
   },
   title: {
     fontSize: theme.fontSize.xl,
     fontWeight: '700',
     color: theme.colors.text,
+    textAlign: 'center',
   },
   body: {
     fontSize: theme.fontSize.md,
     color: theme.colors.textMuted,
-    lineHeight: 22,
+    textAlign: 'center',
   },
 });
