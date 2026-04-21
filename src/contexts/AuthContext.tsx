@@ -9,13 +9,53 @@ import { Session, User } from '@supabase/supabase-js';
 
 import { supabase } from '../lib/supabase';
 
+export type SignUpErrorCode = 'email-already-in-use' | 'unknown';
+
+export class SignUpError extends Error {
+  code: SignUpErrorCode;
+  constructor(code: SignUpErrorCode, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+export type SignInErrorCode =
+  | 'invalid-credentials'
+  | 'too-many-attempts'
+  | 'user-disabled'
+  | 'email-not-verified'
+  | 'unknown';
+
+export class SignInError extends Error {
+  code: SignInErrorCode;
+  constructor(code: SignInErrorCode, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+type SignUpInput = {
+  email: string;
+  password: string;
+  displayName?: string;
+  photoURL?: string;
+};
+
+type SignInInput = {
+  email: string;
+  password: string;
+};
+
 type AuthContextValue = {
   user: User | null;
   session: Session | null;
   initializing: boolean;
+  signUp: (input: SignUpInput) => Promise<void>;
+  signIn: (input: SignInInput) => Promise<void>;
   signOut: () => Promise<void>;
   reloadUser: () => Promise<void>;
   resendVerificationEmail: () => Promise<void>;
+  resendVerificationFor: (input: SignInInput) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -76,15 +116,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw error;
   };
 
+  // Resend the verification email for a user who is not currently signed in.
+  // Re-authenticates briefly with email/password, sends the email, then signs out.
+  const resendVerificationFor = async ({ email, password }: SignInInput) => {
+    try {
+      const credential = await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
+      await sendEmailVerification(credential.user);
+    } finally {
+      if (firebaseAuth.currentUser) {
+        await firebaseSignOut(firebaseAuth);
+      }
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
         user,
         session,
         initializing,
+        signUp,
+        signIn,
         signOut,
         reloadUser,
         resendVerificationEmail,
+        resendVerificationFor,
       }}
     >
       {children}
