@@ -1,16 +1,13 @@
-import {
-  User,
-  createUserWithEmailAndPassword,
-  onAuthStateChanged,
-  reload,
-  sendEmailVerification,
-  signInWithEmailAndPassword,
-  signOut as firebaseSignOut,
-  updateProfile,
-} from 'firebase/auth';
-import React, { ReactNode, createContext, useContext, useEffect, useState } from 'react';
+import React, {
+  ReactNode,
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+} from 'react';
+import { Session, User } from '@supabase/supabase-js';
 
-import { firebaseAuth } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 
 export type SignUpErrorCode = 'email-already-in-use' | 'unknown';
 
@@ -51,6 +48,7 @@ type SignInInput = {
 
 type AuthContextValue = {
   user: User | null;
+  session: Session | null;
   initializing: boolean;
   signUp: (input: SignUpInput) => Promise<void>;
   signIn: (input: SignInInput) => Promise<void>;
@@ -64,83 +62,58 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(firebaseAuth, (firebaseUser) => {
-      setUser(firebaseUser);
+    let mounted = true;
+
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!mounted) return;
+
+      if (error) {
+        console.error('Error getting session:', error);
+      }
+
+      setSession(data.session ?? null);
+      setUser(data.session?.user ?? null);
       setInitializing(false);
     });
-    return unsubscribe;
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession ?? null);
+      setUser(nextSession?.user ?? null);
+      setInitializing(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
-  const signUp = async ({ email, password, displayName, photoURL }: SignUpInput) => {
-    try {
-      const credential = await createUserWithEmailAndPassword(firebaseAuth, email.trim(), password);
-      if (displayName || photoURL) {
-        await updateProfile(credential.user, {
-          displayName: displayName?.trim() || null,
-          photoURL: photoURL || null,
-        });
-      }
-      await sendEmailVerification(credential.user);
-    } catch (err: unknown) {
-      const code = (err as { code?: string })?.code ?? '';
-      if (code === 'auth/email-already-in-use') {
-        throw new SignUpError('email-already-in-use', 'An account with this email already exists');
-      }
-      throw new SignUpError('unknown', 'Something went wrong. Please try again');
-    }
+  const signOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
   };
-
-  const signIn = async ({ email, password }: SignInInput) => {
-    let credential;
-    try {
-      credential = await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
-    } catch (err: unknown) {
-      const code = (err as { code?: string })?.code ?? '';
-      if (
-        code === 'auth/invalid-credential' ||
-        code === 'auth/wrong-password' ||
-        code === 'auth/user-not-found' ||
-        code === 'auth/invalid-email'
-      ) {
-        throw new SignInError('invalid-credentials', 'Invalid email or password');
-      }
-      if (code === 'auth/too-many-requests') {
-        throw new SignInError(
-          'too-many-attempts',
-          'Too many login attempts. Please try again in 15 minutes',
-        );
-      }
-      if (code === 'auth/user-disabled') {
-        throw new SignInError(
-          'user-disabled',
-          'Your account has been suspended. Please contact support',
-        );
-      }
-      throw new SignInError('unknown', 'Something went wrong. Please try again');
-    }
-
-    if (!credential.user.emailVerified) {
-      await firebaseSignOut(firebaseAuth);
-      throw new SignInError('email-not-verified', 'Please verify your email before logging in');
-    }
-  };
-
-  const signOut = () => firebaseSignOut(firebaseAuth);
 
   const reloadUser = async () => {
-    const current = firebaseAuth.currentUser;
-    if (!current) return;
-    await reload(current);
-    setUser(firebaseAuth.currentUser ? { ...firebaseAuth.currentUser } : null);
+    const { data, error } = await supabase.auth.getUser();
+    if (error) throw error;
+    setUser(data.user ?? null);
   };
 
   const resendVerificationEmail = async () => {
-    const current = firebaseAuth.currentUser;
-    if (!current) return;
-    await sendEmailVerification(current);
+    if (!user?.email) return;
+
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: user.email,
+    });
+
+    if (error) throw error;
   };
 
   // Resend the verification email for a user who is not currently signed in.
@@ -160,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        session,
         initializing,
         signUp,
         signIn,

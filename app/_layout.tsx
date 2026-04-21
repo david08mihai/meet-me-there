@@ -15,6 +15,7 @@ function useProtectedRoute() {
     if (initializing) return;
 
     const inAuthGroup = segments[0] === '(auth)';
+    const isEmailConfirmed = !!user?.email_confirmed_at;
 
     if (!user && !inAuthGroup) {
       router.replace('/welcome');
@@ -22,9 +23,9 @@ function useProtectedRoute() {
     }
 
     if (user && inAuthGroup) {
-      if (!user.emailVerified && segments[1] !== 'verify-email') {
+      if (!isEmailConfirmed && segments[1] !== 'verify-email') {
         router.replace('/verify-email');
-      } else if (user.emailVerified) {
+      } else if (isEmailConfirmed) {
         router.replace('/map');
       }
     }
@@ -33,6 +34,7 @@ function useProtectedRoute() {
 
 function RootLayoutNav() {
   useProtectedRoute();
+
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(auth)" />
