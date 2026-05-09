@@ -9,35 +9,53 @@ type Props = {
   onChange: (date: Date) => void;
   placeholder?: string;
   error?: string | null;
-  maximumDate?: Date;
   minimumDate?: Date;
 };
 
-function toYMD(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+type AndroidPickerMode = 'date' | 'time';
+
+function pad(value: number) {
+  return String(value).padStart(2, '0');
 }
 
-function fromYMD(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return null;
-  const [, y, m, d] = match;
-  const date = new Date(Number(y), Number(m) - 1, Number(d));
-  if (Number.isNaN(date.getTime())) return null;
+function toInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function fromInputValue(value: string) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function formatDateTime(date: Date) {
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+function nextDefaultDate() {
+  const date = new Date();
+  date.setMinutes(0, 0, 0);
+  date.setHours(date.getHours() + 1);
   return date;
 }
 
-// Web implementation uses the browser's native <input type="date">.
-function WebDateField({ value, onChange, error, maximumDate, minimumDate }: Props) {
+function WebDateTimeField({ value, onChange, error, minimumDate }: Props) {
   return React.createElement('input', {
-    type: 'date',
-    value: value ? toYMD(value) : '',
-    max: maximumDate ? toYMD(maximumDate) : undefined,
-    min: minimumDate ? toYMD(minimumDate) : undefined,
-    onChange: (e: { target: { value: string } }) => {
-      const parsed = fromYMD(e.target.value);
+    type: 'datetime-local',
+    value: value ? toInputValue(value) : '',
+    min: minimumDate ? toInputValue(minimumDate) : undefined,
+    onChange: (event: { target: { value: string } }) => {
+      const parsed = fromInputValue(event.target.value);
       if (parsed) onChange(parsed);
     },
     style: {
@@ -56,20 +74,46 @@ function WebDateField({ value, onChange, error, maximumDate, minimumDate }: Prop
   });
 }
 
-export function DateField(props: Props) {
-  if (Platform.OS === 'web') return <WebDateField {...props} />;
-  return <NativeDateField {...props} />;
+export function DateTimeField(props: Props) {
+  if (Platform.OS === 'web') return <WebDateTimeField {...props} />;
+  return <NativeDateTimeField {...props} />;
 }
 
-function NativeDateField(props: Props) {
-  const { value, onChange, placeholder = 'Select date', error, maximumDate, minimumDate } = props;
-
+function NativeDateTimeField({
+  value,
+  onChange,
+  placeholder = 'Select date and time',
+  error,
+  minimumDate,
+}: Props) {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<Date>(value ?? new Date(2000, 0, 1));
+  const [draft, setDraft] = useState<Date>(value ?? nextDefaultDate());
+  const [androidMode, setAndroidMode] = useState<AndroidPickerMode>('date');
+
+  const openPicker = () => {
+    setDraft(value ?? nextDefaultDate());
+    setAndroidMode('date');
+    setOpen(true);
+  };
 
   const handleAndroidChange = (event: DateTimePickerEvent, selected?: Date) => {
+    if (event.type !== 'set' || !selected) {
+      setOpen(false);
+      return;
+    }
+
+    if (androidMode === 'date') {
+      const nextDraft = new Date(draft);
+      nextDraft.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+      setDraft(nextDraft);
+      setAndroidMode('time');
+      return;
+    }
+
+    const nextDate = new Date(draft);
+    nextDate.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+    onChange(nextDate);
     setOpen(false);
-    if (event.type === 'set' && selected) onChange(selected);
   };
 
   const handleIosChange = (_: DateTimePickerEvent, selected?: Date) => {
@@ -79,26 +123,23 @@ function NativeDateField(props: Props) {
   return (
     <>
       <Pressable
-        onPress={() => {
-          setDraft(value ?? new Date(2000, 0, 1));
-          setOpen(true);
-        }}
+        onPress={openPicker}
         style={[styles.trigger, error ? styles.errored : null]}
         accessibilityRole="button"
       >
         <Text style={[styles.value, !value && styles.placeholder]}>
-          {value ? toYMD(value) : placeholder}
+          {value ? formatDateTime(value) : placeholder}
         </Text>
       </Pressable>
 
       {open && Platform.OS === 'android' ? (
         <DateTimePicker
-          value={value ?? new Date(2000, 0, 1)}
-          mode="date"
+          value={draft}
+          mode={androidMode}
           display="default"
+          is24Hour
           onChange={handleAndroidChange}
-          maximumDate={maximumDate}
-          minimumDate={minimumDate}
+          minimumDate={androidMode === 'date' ? minimumDate : undefined}
         />
       ) : null}
 
@@ -126,10 +167,9 @@ function NativeDateField(props: Props) {
               </View>
               <DateTimePicker
                 value={draft}
-                mode="date"
+                mode="datetime"
                 display="spinner"
                 onChange={handleIosChange}
-                maximumDate={maximumDate}
                 minimumDate={minimumDate}
               />
             </Pressable>

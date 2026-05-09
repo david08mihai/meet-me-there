@@ -3,6 +3,11 @@ import { Tabs } from 'expo-router';
 
 import { theme } from '../../src/ui/theme';
 
+const hiddenFlowOptions = {
+  href: null,
+  tabBarStyle: { display: 'none' },
+} as const;
+
 export default function AppLayout() {
   return (
     <Tabs
@@ -39,8 +44,10 @@ export default function AppLayout() {
           ),
         }}
       />
-      <Tabs.Screen name="events" options={{ href: null }} />
-      <Tabs.Screen name="chat" options={{ href: null }} />
+      <Tabs.Screen name="events" options={hiddenFlowOptions} />
+      <Tabs.Screen name="chat" options={hiddenFlowOptions} />
+      <Tabs.Screen name="payment" options={hiddenFlowOptions} />
+      <Tabs.Screen name="profile-tools" options={hiddenFlowOptions} />
     </Tabs>
   );
 }

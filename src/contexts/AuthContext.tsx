@@ -8,12 +8,20 @@ import React, {
 import { Session, User } from '@supabase/supabase-js';
 
 import { supabase } from '../lib/supabase';
+import {
+  clearLocalSession,
+  getLocalSessionUser,
+  isAuthNetworkError,
+  isLocalUser,
+  saveLocalSessionUser,
+} from '../lib/localAuth';
 
 type AuthContextValue = {
   user: User | null;
   session: Session | null;
   initializing: boolean;
   signOut: () => Promise<void>;
+  setLocalSession: (user: User) => Promise<void>;
   reloadUser: () => Promise<void>;
   resendVerificationEmail: () => Promise<void>;
 };
@@ -28,17 +36,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (!mounted) return;
+    supabase.auth
+      .getSession()
+      .then(async ({ data, error }) => {
+        if (!mounted) return;
 
-      if (error) {
-        console.error('Error getting session:', error);
-      }
+        if (error && !isAuthNetworkError(error)) {
+          console.error('Error getting session:', error);
+        }
 
-      setSession(data.session ?? null);
-      setUser(data.session?.user ?? null);
-      setInitializing(false);
-    });
+        const localUser = data.session ? null : await getLocalSessionUser();
+
+        setSession(data.session ?? null);
+        setUser(data.session?.user ?? localUser);
+        setInitializing(false);
+      })
+      .catch(async (error) => {
+        if (!mounted) return;
+        if (!isAuthNetworkError(error)) {
+          console.error('Error getting session:', error);
+        }
+
+        const localUser = await getLocalSessionUser();
+        setSession(null);
+        setUser(localUser);
+        setInitializing(false);
+      });
 
     const {
       data: { subscription },
@@ -55,25 +78,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    await clearLocalSession();
+    setSession(null);
+    setUser(null);
+
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error && !isAuthNetworkError(error)) throw error;
+    } catch (error) {
+      if (!isAuthNetworkError(error)) throw error;
+    }
+  };
+
+  const setLocalSession = async (localUser: User) => {
+    await saveLocalSessionUser(localUser);
+    setSession(null);
+    setUser(localUser);
+    setInitializing(false);
   };
 
   const reloadUser = async () => {
-    const { data, error } = await supabase.auth.getUser();
-    if (error) throw error;
-    setUser(data.user ?? null);
+    if (isLocalUser(user)) return;
+
+    try {
+      const { data, error } = await supabase.auth.getUser();
+      if (error) throw error;
+      setUser(data.user ?? null);
+    } catch (error) {
+      if (!isAuthNetworkError(error)) throw error;
+    }
   };
 
   const resendVerificationEmail = async () => {
     if (!user?.email) return;
 
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
-      email: user.email,
-    });
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: user.email,
+      });
 
-    if (error) throw error;
+      if (error) throw error;
+    } catch (error) {
+      if (isAuthNetworkError(error)) {
+        throw new Error('Cannot reach Supabase right now. Try again after the API URL is fixed.');
+      }
+      throw error;
+    }
   };
 
   return (
@@ -83,6 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         initializing,
         signOut,
+        setLocalSession,
         reloadUser,
         resendVerificationEmail,
       }}
