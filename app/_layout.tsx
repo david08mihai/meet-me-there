@@ -25,7 +25,7 @@ function useProtectedRoute() {
     if (user && inAuthGroup) {
       if (!isEmailConfirmed && segments[1] !== 'verify-email') {
         router.replace('/verify-email');
-      } else if (isEmailConfirmed) {
+      } else if (isEmailConfirmed && segments[1] !== 'forgot-password') {
         router.replace('/map');
       }
     }

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { ComponentProps, ReactNode, useEffect, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { ComponentProps, ReactNode, useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,6 +16,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '../../src/contexts/AuthContext';
+import { deleteLocalAccount, isAuthNetworkError, isLocalUser } from '../../src/lib/localAuth';
+import { clearLocalProfileEdit, getLocalProfileEdit } from '../../src/lib/localProfile';
+import { clearUserActivity } from '../../src/lib/mockEvents';
 import { supabase } from '../../src/lib/supabase';
 import { theme } from '../../src/ui/theme';
 
@@ -47,69 +50,110 @@ export default function Profile() {
   const [business, setBusiness] = useState<BusinessData | null>(null);
   const [darkMode, setDarkMode] = useState(false);
 
-  useEffect(() => {
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const { data: userRow, error: userError } = await supabase
-          .from('users')
-          .select('account_type')
-          .eq('user_id', user.id)
-          .maybeSingle();
-        if (userError) throw userError;
-        if (cancelled) return;
-
-        const type = (userRow?.account_type as AccountType) ?? 'personal';
-        setAccountType(type);
-
-        if (type === 'personal') {
-          const { data, error } = await supabase
-            .from('personal_profiles')
-            .select('full_name, photo_url')
-            .eq('user_id', user.id)
-            .maybeSingle();
-          if (error) throw error;
-          if (cancelled) return;
-          setPersonal({
-            fullName: data?.full_name ?? 'User',
-            photoUrl: data?.photo_url ?? null,
-            trustScore: null,
-          });
-        } else {
-          const { data, error } = await supabase
-            .from('business_profiles')
-            .select('business_name, logo_url, location_text')
-            .eq('user_id', user.id)
-            .maybeSingle();
-          if (error) throw error;
-          if (cancelled) return;
-          setBusiness({
-            businessName: data?.business_name ?? 'Business',
-            logoUrl: data?.logo_url ?? null,
-            locationText: data?.location_text ?? null,
-            rating: null,
-            coverUrl: null,
-          });
-        }
-      } catch (error) {
-        console.error('Failed to load profile', error);
-      } finally {
-        if (!cancelled) setLoading(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!user) {
+        setLoading(false);
+        return;
       }
-    })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
+      let cancelled = false;
 
-  const handleEditProfile = () => Alert.alert('Edit Profile', 'Profile editing is coming soon.');
+      (async () => {
+        try {
+          setLoading(true);
+          if (isLocalUser(user)) {
+            const type = (user.user_metadata?.account_type as AccountType) ?? 'personal';
+            const profileEdit = await getLocalProfileEdit();
+            const savedDisplayName = profileEdit?.displayName.trim();
+            setAccountType(type);
+
+            if (type === 'business') {
+              const fallbackName =
+                (user.user_metadata?.business_name as string | undefined) ??
+                (user.user_metadata?.display_name as string | undefined) ??
+                'Local Business';
+              setBusiness({
+                businessName: savedDisplayName || fallbackName,
+                logoUrl: null,
+                locationText: profileEdit?.location || 'Local development profile',
+                rating: 4.8,
+                coverUrl: null,
+              });
+            } else {
+              const fallbackName =
+                (user.user_metadata?.full_name as string | undefined) ??
+                (user.user_metadata?.display_name as string | undefined) ??
+                'Local User';
+              setPersonal({
+                fullName: savedDisplayName || fallbackName,
+                photoUrl: null,
+                trustScore: 86,
+              });
+            }
+            return;
+          }
+
+          const { data: userRow, error: userError } = await supabase
+            .from('users')
+            .select('account_type')
+            .eq('user_id', user.id)
+            .maybeSingle();
+          if (userError) throw userError;
+          if (cancelled) return;
+
+          const type = (userRow?.account_type as AccountType) ?? 'personal';
+          setAccountType(type);
+
+          if (type === 'personal') {
+            const { data, error } = await supabase
+              .from('personal_profiles')
+              .select('full_name, photo_url')
+              .eq('user_id', user.id)
+              .maybeSingle();
+            if (error) throw error;
+            if (cancelled) return;
+            setPersonal({
+              fullName: data?.full_name ?? 'User',
+              photoUrl: data?.photo_url ?? null,
+              trustScore: null,
+            });
+          } else {
+            const { data, error } = await supabase
+              .from('business_profiles')
+              .select('business_name, logo_url, location_text')
+              .eq('user_id', user.id)
+              .maybeSingle();
+            if (error) throw error;
+            if (cancelled) return;
+            setBusiness({
+              businessName: data?.business_name ?? 'Business',
+              logoUrl: data?.logo_url ?? null,
+              locationText: data?.location_text ?? null,
+              rating: null,
+              coverUrl: null,
+            });
+          }
+        } catch (error) {
+          if (!isAuthNetworkError(error)) {
+            console.error('Failed to load profile', error);
+          }
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [user]),
+  );
+
+  const openProfileTool = (section: string) => {
+    router.push({ pathname: '/profile-tools/[section]', params: { section } });
+  };
+
+  const handleEditProfile = () => openProfileTool('edit-profile');
 
   const handleLogout = async () => {
     try {
@@ -125,12 +169,30 @@ export default function Profile() {
       {
         text: 'Delete',
         style: 'destructive',
-        onPress: () => Alert.alert('Delete Account', 'Account deletion is coming soon.'),
+        onPress: async () => {
+          clearUserActivity();
+          await clearLocalProfileEdit();
+          if (user && isLocalUser(user)) {
+            await deleteLocalAccount(user.id);
+          }
+          await signOut();
+          router.replace('/login');
+        },
       },
     ]);
   };
 
-  const handleComingSoon = (label: string) => () => Alert.alert(label, 'Coming soon.');
+  const handleProfileAction = (label: string) => () => {
+    const sections: Record<string, string> = {
+      'My Created Events': 'created-events',
+      'Reviews Received': 'reviews',
+      'Activity Stats': 'stats',
+      'Achievements and Badges': 'achievements',
+      'About Meet Me There': 'about',
+      'Privacy Policy': 'privacy',
+    };
+    openProfileTool(sections[label] ?? 'about');
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -156,7 +218,7 @@ export default function Profile() {
           business={business}
           darkMode={darkMode}
           onToggleDarkMode={setDarkMode}
-          onAction={handleComingSoon}
+          onAction={handleProfileAction}
           onLogout={handleLogout}
           onDeleteAccount={handleDeleteAccount}
         />
@@ -167,7 +229,7 @@ export default function Profile() {
           darkMode={darkMode}
           onToggleDarkMode={setDarkMode}
           onEditProfile={handleEditProfile}
-          onAction={handleComingSoon}
+          onAction={handleProfileAction}
           onLogout={handleLogout}
           onDeleteAccount={handleDeleteAccount}
         />

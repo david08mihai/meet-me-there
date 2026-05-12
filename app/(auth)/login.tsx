@@ -1,10 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,29 +14,99 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useAuth } from '../../src/contexts/AuthContext';
+import { isAuthNetworkError, signInLocalAccount } from '../../src/lib/localAuth';
 import { supabase } from '../../src/lib/supabase';
+import { validateEmail } from '../../src/lib/validation';
+import { ErrorBanner } from '../../src/ui/ErrorBanner';
 import { Input } from '../../src/ui/Input';
 import { theme } from '../../src/ui/theme';
 
 export default function Login() {
+  const router = useRouter();
+  const { setLocalSession } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleLogin = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const nextEmailError = validateEmail(normalizedEmail);
+    const nextPasswordError = password ? null : 'Password is required';
+
+    setEmailError(nextEmailError);
+    setPasswordError(nextPasswordError);
+    setErrorMessage(null);
+
+    if (nextEmailError || nextPasswordError) return;
+
     try {
       setLoading(true);
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
         password,
       });
       if (error) throw error;
+
+      const user = data.user;
+      if (!user) throw new Error('Something went wrong. Please try again.');
+
+      if (!user.email_confirmed_at) {
+        router.replace('/verify-email');
+        return;
+      }
+
+      router.replace('/map');
     } catch (error) {
-      Alert.alert(
-        'Error',
-        error instanceof Error ? error.message : 'Failed to log in'
-      );
+      const message = error instanceof Error ? error.message : 'Failed to log in';
+
+      if (isAuthNetworkError(error)) {
+        const localUser = await signInLocalAccount(normalizedEmail, password);
+
+        if (localUser) {
+          await setLocalSession(localUser);
+          router.replace('/map');
+          return;
+        }
+
+        setErrorMessage(
+          'Cannot reach Supabase right now. If you just created a local development account, check the email and password. If this is a Supabase account, update EXPO_PUBLIC_SUPABASE_URL in .env.',
+        );
+        return;
+      }
+
+      if (message.toLowerCase().includes('email not confirmed')) {
+        let resendError: unknown = null;
+        try {
+          const { error } = await supabase.auth.resend({
+            type: 'signup',
+            email: normalizedEmail,
+          });
+          resendError = error;
+        } catch (error) {
+          resendError = error;
+        }
+
+        setErrorMessage(
+          resendError
+            ? 'Email not confirmed. Please check your inbox for the confirmation email.'
+            : 'Email not confirmed. I sent you a new confirmation email. Please confirm it, then log in again.',
+        );
+        return;
+      }
+
+      if (message.toLowerCase().includes('invalid login credentials')) {
+        setErrorMessage(
+          'Invalid login credentials. If this account was created before the Supabase setup, create it again with Sign Up or reset the password.',
+        );
+        return;
+      }
+
+      setErrorMessage(message);
     } finally {
       setLoading(false);
     }
@@ -85,16 +154,23 @@ export default function Login() {
               <Text style={styles.title}>Welcome Back</Text>
               <Text style={styles.subtitle}>Sign in to find your friends</Text>
 
+              {errorMessage ? <ErrorBanner message={errorMessage} /> : null}
+
               <View style={styles.field}>
                 <Text style={styles.label}>Email</Text>
                 <Input
                   variant="pill"
                   value={email}
-                  onChangeText={setEmail}
+                  onChangeText={(value) => {
+                    setEmail(value);
+                    setEmailError(null);
+                    setErrorMessage(null);
+                  }}
                   placeholder="hello@example.com"
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  error={emailError}
                   leftElement={
                     <Ionicons
                       name="mail-outline"
@@ -103,6 +179,7 @@ export default function Login() {
                     />
                   }
                 />
+                {emailError ? <Text style={styles.fieldError}>{emailError}</Text> : null}
               </View>
 
               <View style={styles.field}>
@@ -117,11 +194,16 @@ export default function Login() {
                 <Input
                   variant="pill"
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(value) => {
+                    setPassword(value);
+                    setPasswordError(null);
+                    setErrorMessage(null);
+                  }}
                   placeholder="••••••••"
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  error={passwordError}
                   leftElement={
                     <Ionicons
                       name="lock-closed-outline"
@@ -146,6 +228,7 @@ export default function Login() {
                     </Pressable>
                   }
                 />
+                {passwordError ? <Text style={styles.fieldError}>{passwordError}</Text> : null}
               </View>
 
               <Pressable
@@ -239,6 +322,11 @@ const styles = StyleSheet.create({
     width: '100%',
     marginBottom: theme.spacing.lg,
     gap: theme.spacing.xs,
+  },
+  fieldError: {
+    color: theme.colors.error,
+    fontSize: theme.fontSize.xs,
+    fontWeight: '700',
   },
   labelRow: {
     flexDirection: 'row',

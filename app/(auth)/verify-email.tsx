@@ -24,7 +24,9 @@ export default function VerifyEmail() {
   // Poll every 5s to auto-detect verification (user clicks link in another tab)
   useEffect(() => {
     const id = setInterval(() => {
-      reloadUser();
+      reloadUser().catch(() => {
+        setError('Could not reach Supabase to check verification status.');
+      });
     }, 5000);
     return () => clearInterval(id);
   }, [reloadUser]);
