@@ -3,17 +3,18 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '../../src/ui/Button';
 import { Screen } from '../../src/ui/Screen';
-import { theme } from '../../src/ui/theme';
+import { theme, useThemeColors } from '../../src/ui/theme';
 
 export default function Welcome() {
   const router = useRouter();
+  const colors = useThemeColors();
 
   return (
     <Screen>
       <View style={styles.container}>
         <View style={styles.hero}>
-          <Text style={styles.title}>Meet Me There</Text>
-          <Text style={styles.subtitle}>
+          <Text style={[styles.title, { color: colors.text }]}>Meet Me There</Text>
+          <Text style={[styles.subtitle, { color: colors.textMuted }]}> 
             Discover local events. Meet people nearby.
           </Text>
         </View>
@@ -36,11 +37,9 @@ const styles = StyleSheet.create({
   title: {
     fontSize: theme.fontSize.xxl,
     fontWeight: '700',
-    color: theme.colors.text,
   },
   subtitle: {
     fontSize: theme.fontSize.md,
-    color: theme.colors.textMuted,
     marginTop: theme.spacing.md,
     textAlign: 'center',
   },

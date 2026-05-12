@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 
-import { theme } from '../../src/ui/theme';
+import { theme, useThemeColors, useThemeMode } from '../../src/ui/theme';
 
 const hiddenFlowOptions = {
   href: null,
@@ -9,12 +9,27 @@ const hiddenFlowOptions = {
 } as const;
 
 export default function AppLayout() {
+  const colors = useThemeColors();
+  const themeMode = useThemeMode();
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: theme.colors.primary,
-        tabBarInactiveTintColor: theme.colors.textMuted,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textMuted,
+        tabBarStyle: {
+          backgroundColor: themeMode === 'dark' ? '#020617' : '#FFFFFF',
+          borderTopColor: colors.border,
+          borderTopWidth: 1,
+          height: 82,
+          paddingTop: 8,
+          paddingBottom: 10,
+        },
+        tabBarLabelStyle: {
+          fontSize: theme.fontSize.xs,
+          fontWeight: '700',
+        },
       }}
     >
       <Tabs.Screen
@@ -47,7 +62,6 @@ export default function AppLayout() {
       <Tabs.Screen name="events" options={hiddenFlowOptions} />
       <Tabs.Screen name="chat" options={hiddenFlowOptions} />
       <Tabs.Screen name="payment" options={hiddenFlowOptions} />
-      <Tabs.Screen name="profile-tools" options={hiddenFlowOptions} />
     </Tabs>
   );
 }

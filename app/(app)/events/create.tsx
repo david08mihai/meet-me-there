@@ -24,7 +24,7 @@ import {
 import { DateTimeField } from '../../../src/ui/DateTimeField';
 import { Input } from '../../../src/ui/Input';
 import { ScreenHeader } from '../../../src/ui/ScreenHeader';
-import { theme } from '../../../src/ui/theme';
+import { theme, useThemeColors, useThemeMode } from '../../../src/ui/theme';
 
 type Errors = Partial<Record<
   | 'title'
@@ -42,6 +42,21 @@ const ACCEPTED_IMAGE = /\.(jpg|jpeg|png)$/i;
 
 export default function CreateEvent() {
   const router = useRouter();
+  const colors = useThemeColors();
+  const themeMode = useThemeMode();
+
+  const palette = {
+    screen: colors.background,
+    card: themeMode === 'dark' ? '#111827' : '#FFFFFF',
+    softCard: themeMode === 'dark' ? '#0F172A' : '#F8FAFC',
+    softAccent: themeMode === 'dark' ? '#1E293B' : '#EEF0FF',
+    chip: themeMode === 'dark' ? '#1E293B' : '#FFFFFF',
+    stepper: themeMode === 'dark' ? '#1E293B' : '#EEF0FF',
+    inputSurface: themeMode === 'dark' ? '#0F172A' : '#FFFFFF',
+    elevated: themeMode === 'dark' ? '#020617' : '#FFFFFF',
+    border: colors.border,
+    mutedBorder: themeMode === 'dark' ? '#475569' : '#CBD5E1',
+  };
 
   const [coverUri, setCoverUri] = useState<string | null>(null);
   const [title, setTitle] = useState('');
@@ -164,7 +179,7 @@ export default function CreateEvent() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: palette.screen }]} edges={['top', 'left', 'right']}>
       <ScreenHeader title="Create Event" onBack={() => router.back()} />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -179,21 +194,25 @@ export default function CreateEvent() {
             onPress={pickCover}
             accessibilityRole="button"
             accessibilityLabel="Add cover image"
-            style={({ pressed }) => [styles.coverPicker, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.coverPicker,
+              { backgroundColor: palette.softAccent, borderColor: palette.mutedBorder },
+              pressed && styles.pressed,
+            ]}
           >
             {coverUri ? (
               <Image source={{ uri: coverUri }} style={styles.coverImage} />
             ) : (
               <View style={styles.coverPlaceholder}>
-                <Ionicons name="image-outline" size={30} color={theme.colors.primary} />
-                <Text style={styles.coverTitle}>Add Cover Image</Text>
-                <Text style={styles.coverSubcopy}>Recommended size: 1200 x 675 px</Text>
+                <Ionicons name="image-outline" size={30} color={colors.primary} />
+                <Text style={[styles.coverTitle, { color: colors.primary }]}>Add Cover Image</Text>
+                <Text style={[styles.coverSubcopy, { color: colors.textMuted }]}>Recommended size: 1200 x 675 px</Text>
               </View>
             )}
           </Pressable>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Event Information</Text>
+          <View style={[styles.section, { backgroundColor: palette.card, borderColor: colors.border }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Event Information</Text>
             <Field label="Event Title" error={errors.title} required>
               <Input
                 value={title}
@@ -221,8 +240,8 @@ export default function CreateEvent() {
             </Field>
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Category Tags</Text>
+          <View style={[styles.section, { backgroundColor: palette.card, borderColor: colors.border }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Category Tags</Text>
             <View style={styles.tagWrap}>
               {visibleTags.map((tag) => {
                 const active = selectedTags.includes(tag);
@@ -234,27 +253,28 @@ export default function CreateEvent() {
                     accessibilityState={{ selected: active }}
                     style={({ pressed }) => [
                       styles.tag,
-                      active && styles.tagActive,
+                      { backgroundColor: palette.chip, borderColor: colors.border },
+                      active && { backgroundColor: colors.primary, borderColor: colors.primary },
                       pressed && styles.pressed,
                     ]}
                   >
-                    <Text style={[styles.tagText, active && styles.tagTextActive]}>{tag}</Text>
+                    <Text style={[styles.tagText, { color: colors.textMuted }, active && styles.tagTextActive]}>{tag}</Text>
                   </Pressable>
                 );
               })}
               <Pressable
                 onPress={() => setShowMoreTags((value) => !value)}
                 accessibilityRole="button"
-                style={({ pressed }) => [styles.tag, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.tag, { backgroundColor: palette.chip, borderColor: colors.border }, pressed && styles.pressed]}
               >
-                <Text style={styles.tagText}>{showMoreTags ? 'Less' : '+ More'}</Text>
+                <Text style={[styles.tagText, { color: colors.textMuted }]}>{showMoreTags ? 'Less' : '+ More'}</Text>
               </Pressable>
             </View>
-            {errors.tags ? <Text style={styles.error}>{errors.tags}</Text> : null}
+            {errors.tags ? <Text style={[styles.error, { color: colors.error }]}>{errors.tags}</Text> : null}
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Schedule</Text>
+          <View style={[styles.section, { backgroundColor: palette.card, borderColor: colors.border }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Schedule</Text>
             <Field label="Start Time" error={errors.start} required>
               <DateTimeField
                 value={startTime}
@@ -286,8 +306,8 @@ export default function CreateEvent() {
             </Field>
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Location</Text>
+          <View style={[styles.section, { backgroundColor: palette.card, borderColor: colors.border }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Location</Text>
             <Field label="Address" error={errors.location} required>
               <Input
                 value={locationQuery}
@@ -298,13 +318,11 @@ export default function CreateEvent() {
                 }}
                 placeholder="Search address..."
                 error={errors.location}
-                leftElement={
-                  <Ionicons name="search-outline" size={18} color={theme.colors.textMuted} />
-                }
+                leftElement={<Ionicons name="search-outline" size={18} color={colors.textMuted} />}
               />
             </Field>
             {locationQuery.trim().length > 0 && !selectedLocation ? (
-              <View style={styles.suggestionBox}>
+              <View style={[styles.suggestionBox, { borderColor: colors.border }]}>
                 {locationMatches.map((location) => (
                   <Pressable
                     key={location.label}
@@ -312,21 +330,25 @@ export default function CreateEvent() {
                       setSelectedLocation(location.label);
                       setLocationQuery(location.label);
                     }}
-                    style={({ pressed }) => [styles.suggestionRow, pressed && styles.pressed]}
+                    style={({ pressed }) => [
+                      styles.suggestionRow,
+                      { backgroundColor: palette.card, borderBottomColor: colors.border },
+                      pressed && styles.pressed,
+                    ]}
                   >
-                    <Ionicons name="location-outline" size={17} color={theme.colors.primary} />
-                    <Text style={styles.suggestionText}>{location.label}</Text>
+                    <Ionicons name="location-outline" size={17} color={colors.primary} />
+                    <Text style={[styles.suggestionText, { color: colors.text }]}>{location.label}</Text>
                   </Pressable>
                 ))}
               </View>
             ) : null}
           </View>
 
-          <View style={styles.controlCard}>
+          <View style={[styles.controlCard, { backgroundColor: palette.card, borderColor: colors.border }]}>
             <View>
-              <Text style={styles.controlTitle}>Capacity</Text>
-              <Text style={styles.controlSubtitle}>Limit attendees</Text>
-              {errors.capacity ? <Text style={styles.error}>{errors.capacity}</Text> : null}
+              <Text style={[styles.controlTitle, { color: colors.text }]}>Capacity</Text>
+              <Text style={[styles.controlSubtitle, { color: colors.textMuted }]}>Limit attendees</Text>
+              {errors.capacity ? <Text style={[styles.error, { color: colors.error }]}>{errors.capacity}</Text> : null}
             </View>
             <View style={styles.stepper}>
               <Pressable
@@ -335,9 +357,9 @@ export default function CreateEvent() {
                 }
                 accessibilityRole="button"
                 accessibilityLabel="Decrease capacity"
-                style={({ pressed }) => [styles.stepButton, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.stepButton, { backgroundColor: palette.stepper }, pressed && styles.pressed]}
               >
-                <Ionicons name="remove" size={20} color={theme.colors.primary} />
+                <Ionicons name="remove" size={20} color={colors.primary} />
               </Pressable>
               <Input
                 value={capacity}
@@ -356,17 +378,17 @@ export default function CreateEvent() {
                 }
                 accessibilityRole="button"
                 accessibilityLabel="Increase capacity"
-                style={({ pressed }) => [styles.stepButton, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.stepButton, { backgroundColor: palette.stepper }, pressed && styles.pressed]}
               >
-                <Ionicons name="add" size={20} color={theme.colors.primary} />
+                <Ionicons name="add" size={20} color={colors.primary} />
               </Pressable>
             </View>
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Pricing Model</Text>
-            <Text style={styles.sectionHint}>Entry fee</Text>
-            <View style={styles.segmented}>
+          <View style={[styles.section, { backgroundColor: palette.card, borderColor: colors.border }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Pricing Model</Text>
+            <Text style={[styles.sectionHint, { color: colors.textMuted }]}>Entry fee</Text>
+            <View style={[styles.segmented, { backgroundColor: palette.softCard }]}>
               {(['Free', 'Paid'] as const).map((option) => {
                 const active = paymentModel === option;
                 return (
@@ -377,11 +399,11 @@ export default function CreateEvent() {
                     accessibilityState={{ selected: active }}
                     style={({ pressed }) => [
                       styles.segment,
-                      active && styles.segmentActive,
+                      active && { backgroundColor: colors.primary },
                       pressed && styles.pressed,
                     ]}
                   >
-                    <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
+                    <Text style={[styles.segmentText, { color: colors.textMuted }, active && styles.segmentTextActive]}>
                       {option}
                     </Text>
                   </Pressable>
@@ -408,18 +430,22 @@ export default function CreateEvent() {
           <Pressable
             onPress={handleSubmit}
             accessibilityRole="button"
-            style={({ pressed }) => [styles.submitButton, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.submitButton,
+              { backgroundColor: colors.primary, shadowColor: colors.primary },
+              pressed && styles.pressed,
+            ]}
           >
             <Text style={styles.submitButtonText}>Set Up Event</Text>
           </Pressable>
 
-          <Text style={styles.termsText}>
+          <Text style={[styles.termsText, { color: colors.textMuted }]}>
             By creating this event, you agree to our{' '}
-            <Text style={styles.linkText} onPress={() => Alert.alert('Community Guidelines')}>
+            <Text style={[styles.linkText, { color: colors.primary }]} onPress={() => Alert.alert('Community Guidelines')}>
               Community Guidelines
             </Text>{' '}
             and{' '}
-            <Text style={styles.linkText} onPress={() => Alert.alert('Terms of Service')}>
+            <Text style={[styles.linkText, { color: colors.primary }]} onPress={() => Alert.alert('Terms of Service')}>
               Terms of Service
             </Text>
             .
@@ -441,14 +467,16 @@ function Field({
   required?: boolean;
   children: ReactNode;
 }) {
+  const colors = useThemeColors();
+
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>
+      <Text style={[styles.fieldLabel, { color: colors.text }]}>
         {label}
-        {required ? <Text style={styles.required}> *</Text> : null}
+        {required ? <Text style={{ color: colors.error }}> *</Text> : null}
       </Text>
       {children}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: colors.error }]}>{error}</Text> : null}
     </View>
   );
 }
@@ -613,7 +641,6 @@ const styles = StyleSheet.create({
   capacityInput: {
     width: 84,
     paddingHorizontal: theme.spacing.sm,
-    color: theme.colors.text,
     fontSize: theme.fontSize.lg,
     fontWeight: '900',
     textAlign: 'center',

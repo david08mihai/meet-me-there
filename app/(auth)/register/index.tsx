@@ -10,12 +10,16 @@ import {
 import { supabase } from '../../../src/lib/supabase';
 import {
   validateAcceptedTerms,
+  validateBusinessCategory,
   validateBusinessName,
   validateConfirmPassword,
+  validateDateOfBirth,
   validateEmail,
   validatePassword,
   validatePersonName,
+  validatePhone,
   validateShortDescription,
+  validateSocialMedia,
   validateUrl,
 } from '../../../src/lib/validation';
 import { Button } from '../../../src/ui/Button';
@@ -23,7 +27,7 @@ import { ErrorBanner } from '../../../src/ui/ErrorBanner';
 import { FormField } from '../../../src/ui/FormField';
 import { Input } from '../../../src/ui/Input';
 import { Screen } from '../../../src/ui/Screen';
-import { theme } from '../../../src/ui/theme';
+import { theme, useThemeColors } from '../../../src/ui/theme';
 
 type AccountType = 'personal' | 'business';
 
@@ -83,6 +87,7 @@ const emptyBusiness: BusinessForm = {
 export default function RegisterAccountType() {
   const router = useRouter();
   const { setLocalSession } = useAuth();
+  const colors = useThemeColors();
 
   const [accountType, setAccountType] = useState<AccountType>('personal');
   const [personal, setPersonal] = useState<PersonalForm>(emptyPersonal);
@@ -103,19 +108,15 @@ export default function RegisterAccountType() {
 
   const validatePersonal = () => {
     const errors: PersonalErrors = {};
-    const parsedDate = new Date(personal.dateOfBirth.trim());
 
     errors.email = validateEmail(personal.email.trim().toLowerCase()) ?? undefined;
     errors.password = validatePassword(personal.password) ?? undefined;
     errors.confirmPassword =
       validateConfirmPassword(personal.confirmPassword, personal.password) ?? undefined;
-    errors.name = validatePersonName(personal.name, 'Full name is required') ?? undefined;
-    errors.phone = personal.phone.trim() ? undefined : 'Phone number is required';
-    errors.dateOfBirth = personal.dateOfBirth.trim()
-      ? Number.isNaN(parsedDate.getTime())
-        ? 'Please enter a valid date'
-        : undefined
-      : 'Date of birth is required';
+    errors.name = validatePersonName(personal.name, 'Name is required') ?? undefined;
+    errors.phone = validatePhone(personal.phone) ?? undefined;
+    const parsedDate = personal.dateOfBirth.trim() ? new Date(personal.dateOfBirth.trim()) : null;
+    errors.dateOfBirth = validateDateOfBirth(parsedDate) ?? undefined;
     errors.gender = personal.gender ? undefined : 'Gender is required';
     errors.acceptTerms = validateAcceptedTerms(personal.acceptTerms) ?? undefined;
 
@@ -130,18 +131,19 @@ export default function RegisterAccountType() {
     const errors: BusinessErrors = {};
 
     errors.businessName = validateBusinessName(business.businessName) ?? undefined;
-    errors.category = business.category.trim() ? undefined : 'Category is required';
+    errors.category = validateBusinessCategory(business.category) ?? undefined;
     errors.shortDescription =
       validateShortDescription(business.shortDescription) ?? undefined;
     errors.contactPerson =
-      validatePersonName(business.contactPerson, 'Contact person is required') ?? undefined;
-    errors.phone = business.phone.trim() ? undefined : 'Phone number is required';
+      validatePersonName(business.contactPerson, 'Contact person name is required') ?? undefined;
+    errors.phone = validatePhone(business.phone) ?? undefined;
     errors.businessEmail =
       validateEmail(business.businessEmail.trim().toLowerCase()) ?? undefined;
     errors.password = validatePassword(business.password) ?? undefined;
     errors.confirmPassword =
       validateConfirmPassword(business.confirmPassword, business.password) ?? undefined;
-    errors.website = validateUrl(business.website) ?? undefined;
+    errors.website = validateUrl(business.website, 'Please enter a valid website URL') ?? undefined;
+    errors.socialMedia = validateSocialMedia(business.socialMedia) ?? undefined;
     errors.acceptTerms = validateAcceptedTerms(business.acceptTerms) ?? undefined;
 
     const compact = Object.fromEntries(
@@ -291,33 +293,35 @@ export default function RegisterAccountType() {
   return (
     <Screen scrollable style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>MEET ME THERE</Text>
-        <Text style={styles.title}>Sign up</Text>
-        <Text style={styles.subtitle}>
+        <Text style={[styles.eyebrow, { color: colors.primary }]}>MEET ME THERE</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Sign up</Text>
+        <Text style={[styles.subtitle, { color: colors.textMuted }]}>
           Join the app and start discovering nearby events and people.
         </Text>
       </View>
 
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         {errorMessage ? <ErrorBanner message={errorMessage} /> : null}
-        {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+        {notice ? <Text style={[styles.notice, { color: colors.primary }]}>{notice}</Text> : null}
 
         <FormField label="Account type" required>
           <View style={styles.accountTypeRow}>
             <AccountTypeButton
               label="Personal Account"
               selected={accountType === 'personal'}
+              colors={colors}
               onPress={() => setAccountType('personal')}
             />
             <AccountTypeButton
               label="Business Account"
               selected={accountType === 'business'}
+              colors={colors}
               onPress={() => setAccountType('business')}
             />
           </View>
         </FormField>
 
-        <Text style={styles.sectionTitle}>{title}</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text>
 
         {accountType === 'personal' ? (
           <>
@@ -458,12 +462,12 @@ export default function RegisterAccountType() {
                 value={business.shortDescription}
                 onChangeText={(value) => updateBusiness('shortDescription', value)}
                 placeholder="Tell users about your business"
-                placeholderTextColor={theme.colors.textMuted}
+                placeholderTextColor={colors.textMuted}
                 multiline
                 textAlignVertical="top"
                 style={[
                   styles.textArea,
-                  businessErrors.shortDescription ? styles.textAreaError : null,
+                  { backgroundColor: colors.background, color: colors.text, borderColor: businessErrors.shortDescription ? colors.error : colors.border },
                 ]}
               />
             </FormField>
@@ -576,10 +580,10 @@ export default function RegisterAccountType() {
         />
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Already have an account?</Text>
+          <Text style={[styles.footerText, { color: colors.textMuted }]}>Already have an account?</Text>
           <Link href="/login" asChild>
             <Pressable>
-              <Text style={styles.footerLink}>Log in</Text>
+              <Text style={[styles.footerLink, { color: colors.primary }]}>Log in</Text>
             </Pressable>
           </Link>
         </View>
@@ -591,10 +595,12 @@ export default function RegisterAccountType() {
 function AccountTypeButton({
   label,
   selected,
+  colors,
   onPress,
 }: {
   label: string;
   selected: boolean;
+  colors: ReturnType<typeof useThemeColors>;
   onPress: () => void;
 }) {
   return (
@@ -602,11 +608,14 @@ function AccountTypeButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.accountTypeOption,
-        selected && styles.accountTypeOptionSelected,
+        {
+          backgroundColor: selected ? colors.primary : colors.background,
+          borderColor: selected ? colors.primary : colors.border,
+        },
         pressed && styles.pressed,
       ]}
     >
-      <Text style={[styles.accountTypeText, selected && styles.accountTypeTextSelected]}>
+      <Text style={[styles.accountTypeText, { color: selected ? '#fff' : colors.text }, selected && styles.accountTypeTextSelected]}>
         {label}
       </Text>
     </Pressable>
@@ -614,10 +623,11 @@ function AccountTypeButton({
 }
 
 function UploadBox({ title }: { title: string }) {
+  const colors = useThemeColors();
   return (
-    <Pressable style={({ pressed }) => [styles.uploadBox, pressed && styles.pressed]}>
-      <Text style={styles.uploadTitle}>{title}</Text>
-      <Text style={styles.uploadText}>Tap to choose an image later</Text>
+    <Pressable style={({ pressed }) => [styles.uploadBox, { borderColor: colors.border, backgroundColor: colors.background }, pressed && styles.pressed]}>
+      <Text style={[styles.uploadTitle, { color: colors.text }]}>{title}</Text>
+      <Text style={[styles.uploadText, { color: colors.textMuted }]}>Tap to choose an image later</Text>
     </Pressable>
   );
 }
@@ -631,12 +641,13 @@ function RadioRow({
   selected: boolean;
   onPress: () => void;
 }) {
+  const colors = useThemeColors();
   return (
     <Pressable onPress={onPress} style={styles.genderRow}>
-      <View style={[styles.genderRadioOuter, selected && styles.genderRadioOuterSelected]}>
-        {selected ? <View style={styles.genderRadioInner} /> : null}
+      <View style={[styles.genderRadioOuter, { borderColor: selected ? colors.primary : colors.border }, selected && styles.genderRadioOuterSelected]}>
+        {selected ? <View style={[styles.genderRadioInner, { backgroundColor: colors.primary }]} /> : null}
       </View>
-      <Text style={[styles.genderLabel, selected && styles.genderLabelSelected]}>{label}</Text>
+      <Text style={[styles.genderLabel, { color: selected ? colors.primary : colors.text }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -650,15 +661,16 @@ function TermsCheckbox({
   error?: string;
   onPress: () => void;
 }) {
+  const colors = useThemeColors();
   return (
     <View style={styles.termsBlock}>
       <Pressable style={styles.checkboxRow} onPress={onPress}>
-        <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
+        <View style={[styles.checkbox, { borderColor: checked ? colors.primary : colors.border, backgroundColor: checked ? colors.primary : colors.background }]}>
           {checked ? <Text style={styles.checkmark}>✓</Text> : null}
         </View>
-        <Text style={styles.checkboxLabel}>I accept the Terms and Conditions</Text>
+        <Text style={[styles.checkboxLabel, { color: colors.text }]}>I accept the Terms and Conditions</Text>
       </Pressable>
-      {error ? <Text style={styles.checkboxError}>{error}</Text> : null}
+      {error ? <Text style={[styles.checkboxError, { color: colors.error }]}>{error}</Text> : null}
     </View>
   );
 }
@@ -675,28 +687,22 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.xs,
     fontWeight: '700',
     letterSpacing: 1.2,
-    color: theme.colors.primary,
     textTransform: 'uppercase',
   },
   title: {
     fontSize: theme.fontSize.xxl,
     fontWeight: '700',
-    color: theme.colors.text,
   },
   subtitle: {
     fontSize: theme.fontSize.md,
     lineHeight: 22,
-    color: theme.colors.textMuted,
   },
   card: {
-    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: theme.colors.border,
     borderRadius: theme.radius.lg,
     padding: theme.spacing.lg,
   },
   notice: {
-    color: theme.colors.primary,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
     lineHeight: 20,
@@ -705,16 +711,13 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: theme.fontSize.lg,
     fontWeight: '700',
-    color: theme.colors.text,
     marginBottom: theme.spacing.lg,
   },
   uploadBox: {
     minHeight: 96,
     borderWidth: 1,
-    borderColor: theme.colors.border,
     borderStyle: 'dashed',
     borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.background,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: theme.spacing.lg,
@@ -724,26 +727,18 @@ const styles = StyleSheet.create({
   uploadTitle: {
     fontSize: theme.fontSize.md,
     fontWeight: '600',
-    color: theme.colors.text,
   },
   uploadText: {
     fontSize: theme.fontSize.sm,
-    color: theme.colors.textMuted,
     textAlign: 'center',
   },
   textArea: {
     minHeight: 120,
     borderWidth: 1,
-    borderColor: theme.colors.border,
     borderRadius: theme.radius.md,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.md,
-    backgroundColor: theme.colors.background,
-    color: theme.colors.text,
     fontSize: theme.fontSize.md,
-  },
-  textAreaError: {
-    borderColor: theme.colors.error,
   },
   termsBlock: {
     marginBottom: theme.spacing.xl,
@@ -758,16 +753,10 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderWidth: 1,
-    borderColor: theme.colors.border,
     borderRadius: 6,
-    backgroundColor: theme.colors.background,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 1,
-  },
-  checkboxChecked: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
   },
   checkmark: {
     color: '#fff',
@@ -778,10 +767,8 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: theme.fontSize.sm,
     lineHeight: 20,
-    color: theme.colors.text,
   },
   checkboxError: {
-    color: theme.colors.error,
     fontSize: theme.fontSize.xs,
     fontWeight: '700',
     marginLeft: 34,
@@ -798,12 +785,10 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: theme.fontSize.sm,
-    color: theme.colors.textMuted,
   },
   footerLink: {
     fontSize: theme.fontSize.sm,
     fontWeight: '600',
-    color: theme.colors.primary,
   },
   accountTypeRow: {
     flexDirection: 'row',
@@ -813,21 +798,14 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 48,
     borderWidth: 1,
-    borderColor: theme.colors.border,
     borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.background,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: theme.spacing.md,
   },
-  accountTypeOptionSelected: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
-  },
   accountTypeText: {
     fontSize: theme.fontSize.sm,
     fontWeight: '500',
-    color: theme.colors.text,
     textAlign: 'center',
   },
   accountTypeTextSelected: {
@@ -848,23 +826,17 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: theme.radius.full,
     borderWidth: 1.5,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.background,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  genderRadioOuterSelected: {
-    borderColor: theme.colors.primary,
-  },
+  genderRadioOuterSelected: {},
   genderRadioInner: {
     width: 10,
     height: 10,
     borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.primary,
   },
   genderLabel: {
     fontSize: theme.fontSize.sm,
-    color: theme.colors.text,
   },
   genderLabelSelected: {
     fontWeight: '600',
@@ -873,3 +845,4 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
 });
+``

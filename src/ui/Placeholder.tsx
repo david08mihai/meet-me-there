@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Screen } from './Screen';
-import { theme } from './theme';
+import { theme, useThemeColors } from './theme';
 
 type Props = {
   title: string;
@@ -11,14 +11,16 @@ type Props = {
 };
 
 export function Placeholder({ title }: Props) {
+  const colors = useThemeColors();
+
   return (
     <Screen>
       <View style={styles.wrapper}>
-        <View style={styles.iconCircle}>
-          <Ionicons name="construct-outline" size={32} color={theme.colors.primary} />
+        <View style={[styles.iconCircle, { backgroundColor: colors.surface }]}>
+          <Ionicons name="construct-outline" size={32} color={colors.primary} />
         </View>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.body}>Coming soon.</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+        <Text style={[styles.body, { color: colors.textMuted }]}>Coming soon.</Text>
       </View>
     </Screen>
   );
@@ -35,7 +37,6 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: '#EEF0FF',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: theme.spacing.sm,
@@ -43,12 +44,10 @@ const styles = StyleSheet.create({
   title: {
     fontSize: theme.fontSize.xl,
     fontWeight: '700',
-    color: theme.colors.text,
     textAlign: 'center',
   },
   body: {
     fontSize: theme.fontSize.md,
-    color: theme.colors.textMuted,
     textAlign: 'center',
   },
 });

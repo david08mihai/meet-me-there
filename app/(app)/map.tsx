@@ -24,7 +24,7 @@ import {
 } from '../../src/lib/mockEvents';
 import { EventCard, TagPills } from '../../src/ui/EventCard';
 import { Select } from '../../src/ui/Select';
-import { theme } from '../../src/ui/theme';
+import { theme, useThemeColors } from '../../src/ui/theme';
 
 type ViewMode = 'map' | 'list';
 type MapRegion = 'romania' | 'world';
@@ -76,6 +76,8 @@ function tileUrl(zoom: number, x: number, y: number) {
 
 export default function ExploreMap() {
   const router = useRouter();
+  const colors = useThemeColors();
+  const themeMode = useThemeColors().background === '#0F172A' ? 'dark' : 'light';
   const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [region, setRegion] = useState<MapRegion>('romania');
   const [dateFilter, setDateFilter] = useState<DateFilter>('all');
@@ -117,24 +119,28 @@ export default function ExploreMap() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Text style={styles.title}>Explore Events</Text>
+        <Text style={[styles.title, { color: colors.primary }]}>Explore Events</Text>
         <Pressable
           onPress={() => setViewMode((mode) => (mode === 'map' ? 'list' : 'map'))}
           accessibilityRole="button"
           accessibilityLabel={viewMode === 'map' ? 'Switch to list view' : 'Switch to map view'}
-          style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.iconButton,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+            pressed && styles.pressed,
+          ]}
         >
           <Ionicons
             name={viewMode === 'map' ? 'list-outline' : 'map-outline'}
             size={22}
-            color={theme.colors.primary}
+            color={colors.primary}
           />
         </Pressable>
       </View>
 
-      <View style={styles.filters}>
+      <View style={[styles.filters, { backgroundColor: colors.background }]}>
         <View style={styles.filterRow}>
           <View style={styles.filterField}>
             <Select<DateFilter>
@@ -175,11 +181,12 @@ export default function ExploreMap() {
                 accessibilityState={{ selected: active }}
                 style={({ pressed }) => [
                   styles.filterTag,
+                  { backgroundColor: active ? colors.primary : colors.surface, borderColor: colors.border },
                   active && styles.filterTagActive,
                   pressed && styles.pressed,
                 ]}
               >
-                <Text style={[styles.filterTagText, active && styles.filterTagTextActive]}>
+                <Text style={[styles.filterTagText, { color: active ? '#FFFFFF' : colors.text }, active && styles.filterTagTextActive]}>
                   {tag}
                 </Text>
               </Pressable>
@@ -225,22 +232,35 @@ function MapView({
   onPopular: () => void;
   onRegionChange: (region: MapRegion) => void;
 }) {
+  const colors = useThemeColors();
+  const isDark = colors.background === '#0F172A';
   const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
-  const [center, setCenter] = useState({
+  const [zoom, setZoom] = useState(REGIONS[region].zoom);
+  const [, forceUpdate] = useState(0);
+
+  // Store center in a ref so gesture handler always reads/writes the true live value
+  // without going through React's async state queue.
+  const centerRef = useRef({
     latitude: REGIONS[region].latitude,
     longitude: REGIONS[region].longitude,
   });
-  const [zoom, setZoom] = useState(REGIONS[region].zoom);
-  const panStartRef = useRef<{ tileX: number; tileY: number } | null>(null);
+  const panStartRef = useRef<{ lastDx: number; lastDy: number } | null>(null);
+  const zoomRef = useRef(zoom);
 
   useEffect(() => {
-    setCenter({
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  useEffect(() => {
+    centerRef.current = {
       latitude: REGIONS[region].latitude,
       longitude: REGIONS[region].longitude,
-    });
+    };
     setZoom(REGIONS[region].zoom);
+    forceUpdate((n) => n + 1);
   }, [region]);
 
+  const center = centerRef.current;
   const mapWidth = mapSize.width || 360;
   const mapHeight = mapSize.height || 420;
   const centerTileX = lonToTileX(center.longitude, zoom);
@@ -270,41 +290,75 @@ function MapView({
     return nextTiles;
   }, [centerTileX, centerTileY, mapHeight, mapWidth, zoom]);
 
+  const pinchRef = useRef<{ lastDist: number } | null>(null);
+
   const panResponder = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: (_event, gestureState) =>
-          Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5,
-        onPanResponderGrant: () => {
-          panStartRef.current = {
-            tileX: lonToTileX(center.longitude, zoom),
-            tileY: latToTileY(center.latitude, zoom),
-          };
+          Math.abs(gestureState.dx) > 3 || Math.abs(gestureState.dy) > 3,
+        onPanResponderGrant: (_event) => {
+          panStartRef.current = { lastDx: 0, lastDy: 0 };
+          pinchRef.current = null;
         },
-        onPanResponderMove: (_event, gestureState) => {
+        onPanResponderMove: (event, gestureState) => {
           if (!panStartRef.current) return;
 
-          const nextTileX = panStartRef.current.tileX - gestureState.dx / TILE_SIZE;
-          const nextTileY = clamp(
-            panStartRef.current.tileY - gestureState.dy / TILE_SIZE,
-            0.0001,
-            2 ** zoom - 0.0001,
-          );
+          const touches = event.nativeEvent.touches;
 
-          setCenter({
-            latitude: clamp(tileYToLat(nextTileY, zoom), -85, 85),
-            longitude: wrapLongitude(tileXToLon(nextTileX, zoom)),
-          });
+          // ── Two-finger pinch-to-zoom ──────────────────────────────────
+          if (touches && touches.length === 2) {
+            const dx = touches[0].pageX - touches[1].pageX;
+            const dy = touches[0].pageY - touches[1].pageY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (pinchRef.current !== null) {
+              const ratio = dist / pinchRef.current.lastDist;
+              const z = zoomRef.current;
+              // Only step zoom when the scale change is large enough
+              const nextZoom = clamp(Math.round(z + Math.log2(ratio) * 2), MIN_ZOOM, MAX_ZOOM);
+              if (nextZoom !== z) {
+                zoomRef.current = nextZoom;
+                setZoom(nextZoom);
+              }
+            }
+            pinchRef.current = { lastDist: dist };
+            // Reset pan deltas so single-finger resume doesn't jump
+            panStartRef.current = { lastDx: gestureState.dx, lastDy: gestureState.dy };
+            return;
+          }
+
+          // ── Single-finger pan ─────────────────────────────────────────
+          pinchRef.current = null;
+          const deltaX = gestureState.dx - panStartRef.current.lastDx;
+          const deltaY = gestureState.dy - panStartRef.current.lastDy;
+          panStartRef.current.lastDx = gestureState.dx;
+          panStartRef.current.lastDy = gestureState.dy;
+
+          const z = zoomRef.current;
+          const currentTileX = lonToTileX(centerRef.current.longitude, z);
+          const currentTileY = latToTileY(centerRef.current.latitude, z);
+          const nextTileX = currentTileX - deltaX / TILE_SIZE;
+          const nextTileY = clamp(currentTileY - deltaY / TILE_SIZE, 0.0001, 2 ** z - 0.0001);
+
+          centerRef.current = {
+            latitude: clamp(tileYToLat(nextTileY, z), -85, 85),
+            longitude: wrapLongitude(tileXToLon(nextTileX, z)),
+          };
+          forceUpdate((n) => n + 1);
         },
         onPanResponderRelease: () => {
           panStartRef.current = null;
+          pinchRef.current = null;
         },
         onPanResponderTerminate: () => {
           panStartRef.current = null;
+          pinchRef.current = null;
         },
       }),
-    [center.latitude, center.longitude, zoom],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
   );
 
   const handleLayout = (event: LayoutChangeEvent) => {
@@ -318,11 +372,12 @@ function MapView({
   };
 
   const handleRecenter = () => {
-    setCenter({
+    centerRef.current = {
       latitude: REGIONS[region].latitude,
       longitude: REGIONS[region].longitude,
-    });
+    };
     setZoom(REGIONS[region].zoom);
+    forceUpdate((n) => n + 1);
   };
 
   const handleZoom = (step: number) => {
@@ -342,7 +397,7 @@ function MapView({
 
   return (
     <View style={styles.mapWrap}>
-      <View style={styles.mapCanvas} onLayout={handleLayout}>
+    <View style={[styles.mapCanvas, { backgroundColor: isDark ? '#0F172A' : '#BFD9DF', borderColor: colors.border }]} onLayout={handleLayout}>
         {tiles.map((tile) => (
           <View
             key={tile.key}
@@ -359,10 +414,10 @@ function MapView({
           </View>
         ))}
 
-        <View style={styles.mapSoftOverlay} pointerEvents="none" />
-        <View style={styles.dragLayer} {...panResponder.panHandlers} />
+        <View style={[styles.mapSoftOverlay, { backgroundColor: isDark ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.04)' }]} pointerEvents="none" />
+        <View style={[styles.dragLayer, { touchAction: 'none' } as any]} {...panResponder.panHandlers} />
 
-        <View style={styles.regionControl}>
+        <View style={[styles.regionControl, { backgroundColor: colors.background, borderColor: colors.border }]}>
           {(['romania', 'world'] as const).map((option) => {
             const active = option === region;
             return (
@@ -373,11 +428,11 @@ function MapView({
                 accessibilityState={{ selected: active }}
                 style={({ pressed }) => [
                   styles.regionButton,
-                  active && styles.regionButtonActive,
+                  active && { backgroundColor: colors.primary },
                   pressed && styles.pressed,
                 ]}
               >
-                <Text style={[styles.regionText, active && styles.regionTextActive]}>
+                <Text style={[styles.regionText, { color: active ? '#FFFFFF' : colors.textMuted }]}>
                   {REGIONS[option].label}
                 </Text>
               </Pressable>
@@ -392,11 +447,12 @@ function MapView({
             accessibilityLabel="Zoom in"
             style={({ pressed }) => [
               styles.mapControlButton,
+              { backgroundColor: colors.background, borderColor: colors.border },
               zoom === MAX_ZOOM && styles.disabledControl,
               pressed && styles.pressed,
             ]}
           >
-            <Ionicons name="add" size={22} color={theme.colors.primary} />
+            <Ionicons name="add" size={22} color={colors.primary} />
           </Pressable>
           <View style={styles.zoomBadge}>
             <Text style={styles.zoomText}>{zoom}</Text>
@@ -407,19 +463,20 @@ function MapView({
             accessibilityLabel="Zoom out"
             style={({ pressed }) => [
               styles.mapControlButton,
+              { backgroundColor: colors.background, borderColor: colors.border },
               zoom === MIN_ZOOM && styles.disabledControl,
               pressed && styles.pressed,
             ]}
           >
-            <Ionicons name="remove" size={22} color={theme.colors.primary} />
+            <Ionicons name="remove" size={22} color={colors.primary} />
           </Pressable>
           <Pressable
             onPress={handleRecenter}
             accessibilityRole="button"
             accessibilityLabel="Recenter map"
-            style={({ pressed }) => [styles.mapControlButton, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.mapControlButton, { backgroundColor: colors.background, borderColor: colors.border }, pressed && styles.pressed]}
           >
-            <Ionicons name="locate-outline" size={20} color={theme.colors.primary} />
+            <Ionicons name="locate-outline" size={20} color={colors.primary} />
           </Pressable>
         </View>
 
@@ -432,7 +489,7 @@ function MapView({
           <Text style={styles.popularButtonText}>Popular</Text>
         </Pressable>
 
-        <View style={styles.mapAttribution}>
+        <View style={[styles.mapAttribution, { backgroundColor: colors.background, borderColor: colors.border }]}>
           <Text style={styles.mapAttributionText}>OpenStreetMap</Text>
         </View>
 
@@ -448,6 +505,8 @@ function MapView({
                 {
                   left: position.left,
                   top: position.top,
+                  backgroundColor: selectedEvent?.id === event.id ? colors.primary : colors.background,
+                  borderColor: selectedEvent?.id === event.id ? colors.background : colors.primary,
                 },
                 selectedEvent?.id === event.id && styles.markerActive,
                 pressed && styles.pressed,
@@ -480,15 +539,15 @@ function MapView({
 
         {events.length === 0 ? (
           <View style={styles.emptyMap}>
-            <Ionicons name="search-outline" size={24} color={theme.colors.textMuted} />
-            <Text style={styles.emptyTitle}>No events found</Text>
-            <Text style={styles.emptyText}>Try another date, time, or tag.</Text>
+            <Ionicons name="search-outline" size={24} color={colors.textMuted} />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>No events found</Text>
+            <Text style={[styles.emptyText, { color: colors.textMuted }]}>Try another date, time, or tag.</Text>
           </View>
         ) : null}
       </View>
 
       {selectedEvent ? (
-        <View style={styles.previewCard}>
+          <View style={[styles.previewCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
           <View style={styles.previewHeader}>
             <TagPills tags={selectedEvent.tags} limit={3} />
             <Pressable
@@ -497,12 +556,12 @@ function MapView({
               accessibilityRole="button"
               accessibilityLabel="Close event preview"
             >
-              <Ionicons name="close" size={22} color={theme.colors.textMuted} />
+              <Ionicons name="close" size={22} color={colors.textMuted} />
             </Pressable>
           </View>
           <EventCard event={selectedEvent} variant="compact" onPress={() => onOpen(selectedEvent)} />
           <View style={styles.locationReference}>
-            <Ionicons name="navigate-outline" size={16} color={theme.colors.primary} />
+              <Ionicons name="navigate-outline" size={16} color={colors.primary} />
             <Text style={styles.locationReferenceText}>{selectedEvent.coordinateLabel}</Text>
           </View>
         </View>
@@ -518,6 +577,8 @@ function ListView({
   events: EventItem[];
   onOpen: (event: EventItem) => void;
 }) {
+  const colors = useThemeColors();
+
   return (
     <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
       {events.length === 0 ? (
@@ -559,7 +620,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EEF0FF',
+    borderWidth: 1,
   },
   pressed: {
     opacity: 0.75,

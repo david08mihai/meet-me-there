@@ -12,7 +12,7 @@ import {
 } from '../../src/lib/mockEvents';
 import { EventCard } from '../../src/ui/EventCard';
 import { Select } from '../../src/ui/Select';
-import { theme } from '../../src/ui/theme';
+import { theme, useThemeColors } from '../../src/ui/theme';
 
 const BOOKING_OPTIONS = [
   { value: 'upcoming', label: 'Upcoming Events' },
@@ -21,6 +21,7 @@ const BOOKING_OPTIONS = [
 
 export default function Bookings() {
   const router = useRouter();
+  const colors = useThemeColors();
   const [view, setView] = useState<BookingView>('upcoming');
   const [events, setEvents] = useState<EventItem[]>(() => getBookedEvents('upcoming'));
 
@@ -36,9 +37,9 @@ export default function Bookings() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Text style={styles.title}>See Bookings</Text>
+        <Text style={[styles.title, { color: colors.primary }]}>See Bookings</Text>
         <Pressable
           onPress={() => router.push('/events/create')}
           accessibilityRole="button"
@@ -62,7 +63,10 @@ export default function Bookings() {
         />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { backgroundColor: colors.background }]}
+        showsVerticalScrollIndicator={false}
+      >
         {events.length === 0 ? (
           <EmptyBookings view={view} />
         ) : view === 'upcoming' ? (
@@ -84,6 +88,7 @@ function PastEventGroups({
   events: EventItem[];
   onOpen: (event: EventItem) => void;
 }) {
+  const colors = useThemeColors();
   const groups = events.reduce<Record<string, EventItem[]>>((acc, event) => {
     const label = formatMonthGroup(event.startsAt);
     acc[label] = [...(acc[label] ?? []), event];
@@ -94,7 +99,7 @@ function PastEventGroups({
     <>
       {Object.entries(groups).map(([month, groupedEvents]) => (
         <View key={month} style={styles.group}>
-          <Text style={styles.monthTitle}>{month}</Text>
+          <Text style={[styles.monthTitle, { color: colors.text }]}>{month}</Text>
           {groupedEvents.map((event) => (
             <EventCard
               key={event.id}
@@ -110,17 +115,19 @@ function PastEventGroups({
 }
 
 function EmptyBookings({ view }: { view: BookingView }) {
+  const colors = useThemeColors();
+
   return (
     <View style={styles.emptyState}>
       <Ionicons
         name={view === 'upcoming' ? 'calendar-clear-outline' : 'archive-outline'}
         size={32}
-        color={theme.colors.textMuted}
+        color={colors.textMuted}
       />
-      <Text style={styles.emptyTitle}>
+      <Text style={[styles.emptyTitle, { color: colors.text }] }>
         {view === 'upcoming' ? 'No upcoming events' : 'No past events'}
       </Text>
-      <Text style={styles.emptyText}>
+      <Text style={[styles.emptyText, { color: colors.textMuted }] }>
         {view === 'upcoming'
           ? 'Joined future events will appear here.'
           : 'Attended events and reviews will appear here.'}
@@ -132,7 +139,6 @@ function EmptyBookings({ view }: { view: BookingView }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: theme.colors.surface,
   },
   header: {
     flexDirection: 'row',
@@ -143,7 +149,6 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.md,
   },
   title: {
-    color: theme.colors.primary,
     fontSize: theme.fontSize.xl,
     fontWeight: '800',
   },
@@ -176,7 +181,6 @@ const styles = StyleSheet.create({
     gap: theme.spacing.md,
   },
   monthTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.lg,
     fontWeight: '800',
     marginTop: theme.spacing.sm,
@@ -188,12 +192,10 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.xxl,
   },
   emptyTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.md,
     fontWeight: '800',
   },
   emptyText: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     textAlign: 'center',
   },

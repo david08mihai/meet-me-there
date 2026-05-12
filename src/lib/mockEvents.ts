@@ -609,8 +609,8 @@ export function formatEventTime(event: EventItem) {
 
 export function formatEventSchedule(event: EventItem, includeEnd = true) {
   return includeEnd
-    ? `${formatEventDate(event)} - ${formatEventTime(event)}`
-    : `${formatEventDate(event)} - ${new Intl.DateTimeFormat('en', {
+    ? `${formatEventDate(event)} • ${formatEventTime(event)}`
+    : `${formatEventDate(event)} • ${new Intl.DateTimeFormat('en', {
         hour: 'numeric',
         minute: '2-digit',
       }).format(new Date(event.startsAt))}`;

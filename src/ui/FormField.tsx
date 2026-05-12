@@ -1,7 +1,7 @@
 import { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { theme } from './theme';
+import { theme, useThemeColors } from './theme';
 
 type Props = {
   label: string;
@@ -11,14 +11,16 @@ type Props = {
 };
 
 export function FormField({ label, error, required, children }: Props) {
+  const colors = useThemeColors();
+
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>
+      <Text style={[styles.label, { color: colors.text }]}>
         {label}
-        {required ? <Text style={styles.required}> *</Text> : null}
+        {required ? <Text style={{ color: colors.error }}> *</Text> : null}
       </Text>
       {children}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: colors.error }]}>{error}</Text> : null}
     </View>
   );
 }

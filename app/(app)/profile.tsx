@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { ComponentProps, ReactNode, useCallback, useState } from 'react';
+import { ComponentProps, ReactNode, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Appearance,
   Image,
   Pressable,
   ScrollView,
@@ -18,13 +20,107 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { deleteLocalAccount, isAuthNetworkError, isLocalUser } from '../../src/lib/localAuth';
 import { clearLocalProfileEdit, getLocalProfileEdit } from '../../src/lib/localProfile';
-import { clearUserActivity } from '../../src/lib/mockEvents';
+import { clearUserActivity, getReviewedEvents } from '../../src/lib/mockEvents';
 import { supabase } from '../../src/lib/supabase';
-import { theme } from '../../src/ui/theme';
+import { setThemeMode, theme } from '../../src/ui/theme';
 
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
 type AccountType = 'personal' | 'business';
+
+type ProfileColors = {
+  screen: string;
+  headerTitle: string;
+  backButtonBg: string;
+  card: string;
+  rowCard: string;
+  sectionText: string;
+  bodyText: string;
+  mutedText: string;
+  trustPill: string;
+  trustCircleBorder: string;
+  trustCircleBg: string;
+  trustValue: string;
+  trustLabel: string;
+  businessCard: string;
+  destructiveBg: string;
+  destructiveText: string;
+  destructiveIcon: string;
+  ratingPill: string;
+  ratingText: string;
+  locationText: string;
+  toggleTrackOff: string;
+};
+
+const PROFILE_DARK_MODE_KEY = 'meet-me-there:profile-dark-mode';
+
+const profileStorage = {
+  async getItem(key: string) {
+    return AsyncStorage.getItem(key);
+  },
+  async setItem(key: string, value: string) {
+    await AsyncStorage.setItem(key, value);
+  },
+};
+
+const LIGHT_PROFILE_COLORS: ProfileColors = {
+  screen: theme.colors.surface,
+  headerTitle: theme.colors.primary,
+  backButtonBg: '#EEF0FF',
+  card: '#FFFFFF',
+  rowCard: '#FFFFFF',
+  sectionText: theme.colors.text,
+  bodyText: theme.colors.text,
+  mutedText: theme.colors.textMuted,
+  trustPill: '#FCE7F3',
+  trustCircleBorder: '#DB2777',
+  trustCircleBg: '#FFFFFF',
+  trustValue: '#BE185D',
+  trustLabel: '#BE185D',
+  businessCard: '#FFFFFF',
+  destructiveBg: '#FEE2E2',
+  destructiveText: theme.colors.error,
+  destructiveIcon: theme.colors.error,
+  ratingPill: '#DCFCE7',
+  ratingText: '#15803D',
+  locationText: theme.colors.textMuted,
+  toggleTrackOff: '#D1D5DB',
+};
+
+const DARK_PROFILE_COLORS: ProfileColors = {
+  screen: '#0F172A',
+  headerTitle: '#E0E7FF',
+  backButtonBg: '#1E293B',
+  card: '#111827',
+  rowCard: '#111827',
+  sectionText: '#F9FAFB',
+  bodyText: '#F9FAFB',
+  mutedText: '#CBD5E1',
+  trustPill: '#312244',
+  trustCircleBorder: '#F472B6',
+  trustCircleBg: '#1F2937',
+  trustValue: '#F9A8D4',
+  trustLabel: '#F9A8D4',
+  businessCard: '#111827',
+  destructiveBg: '#3B1B21',
+  destructiveText: '#FCA5A5',
+  destructiveIcon: '#FCA5A5',
+  ratingPill: '#12331F',
+  ratingText: '#86EFAC',
+  locationText: '#CBD5E1',
+  toggleTrackOff: '#475569',
+};
+
+function getTrustScore() {
+  const reviewScores = getReviewedEvents()
+    .map((event) => event.review?.rating)
+    .filter((rating): rating is number => typeof rating === 'number');
+
+  if (reviewScores.length === 0) return 78;
+
+  const average = reviewScores.reduce((sum, rating) => sum + rating, 0) / reviewScores.length;
+  return Math.round(average * 10);
+}
 
 type PersonalData = {
   fullName: string;
@@ -49,6 +145,29 @@ export default function Profile() {
   const [personal, setPersonal] = useState<PersonalData | null>(null);
   const [business, setBusiness] = useState<BusinessData | null>(null);
   const [darkMode, setDarkMode] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      const saved = await profileStorage.getItem(PROFILE_DARK_MODE_KEY);
+      if (active && saved != null) {
+        setDarkMode(saved === 'true');
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setThemeMode(darkMode ? 'dark' : 'light');
+    Appearance.setColorScheme(darkMode ? 'dark' : 'light');
+    profileStorage.setItem(PROFILE_DARK_MODE_KEY, String(darkMode)).catch(() => {});
+  }, [darkMode]);
+
+  const colors = darkMode ? DARK_PROFILE_COLORS : LIGHT_PROFILE_COLORS;
 
   useFocusEffect(
     useCallback(() => {
@@ -88,7 +207,7 @@ export default function Profile() {
               setPersonal({
                 fullName: savedDisplayName || fallbackName,
                 photoUrl: null,
-                trustScore: 86,
+                trustScore: getTrustScore(),
               });
             }
             return;
@@ -116,7 +235,7 @@ export default function Profile() {
             setPersonal({
               fullName: data?.full_name ?? 'User',
               photoUrl: data?.photo_url ?? null,
-              trustScore: null,
+              trustScore: getTrustScore(),
             });
           } else {
             const { data, error } = await supabase
@@ -195,28 +314,29 @@ export default function Profile() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.screen }]} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Pressable
           onPress={() => router.back()}
           hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="Go back"
-          style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.backButton, { backgroundColor: colors.backButtonBg }, pressed && styles.pressed]}
         >
-          <Ionicons name="arrow-back" size={22} color={theme.colors.primary} />
+          <Ionicons name="arrow-back" size={22} color={colors.headerTitle} />
         </Pressable>
-        <Text style={styles.headerTitle}>Profile</Text>
+        <Text style={[styles.headerTitle, { color: colors.headerTitle }]}>Profile</Text>
       </View>
 
       {loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={theme.colors.primary} />
+          <ActivityIndicator color={colors.headerTitle} />
         </View>
       ) : accountType === 'business' && business ? (
         <BusinessProfileView
           business={business}
           darkMode={darkMode}
+          colors={colors}
           onToggleDarkMode={setDarkMode}
           onAction={handleProfileAction}
           onLogout={handleLogout}
@@ -227,6 +347,7 @@ export default function Profile() {
           personal={personal}
           email={user?.email ?? ''}
           darkMode={darkMode}
+          colors={colors}
           onToggleDarkMode={setDarkMode}
           onEditProfile={handleEditProfile}
           onAction={handleProfileAction}
@@ -235,7 +356,7 @@ export default function Profile() {
         />
       ) : (
         <View style={styles.centered}>
-          <Text style={styles.mutedText}>Profile unavailable.</Text>
+          <Text style={[styles.mutedText, { color: colors.mutedText }]}>Profile unavailable.</Text>
         </View>
       )}
     </SafeAreaView>
@@ -248,6 +369,7 @@ function PersonalProfileView({
   personal,
   email,
   darkMode,
+  colors,
   onToggleDarkMode,
   onEditProfile,
   onAction,
@@ -257,6 +379,7 @@ function PersonalProfileView({
   personal: PersonalData;
   email: string;
   darkMode: boolean;
+  colors: ProfileColors;
   onToggleDarkMode: (value: boolean) => void;
   onEditProfile: () => void;
   onAction: ActionFactory;
@@ -266,25 +389,35 @@ function PersonalProfileView({
   const username = email ? `@${email.split('@')[0]}` : '';
 
   return (
-    <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      contentContainerStyle={[styles.scrollContent, { backgroundColor: colors.screen }]}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.personalIdentity}>
-        <View style={styles.avatarRing}>
+        <View style={[styles.avatarRing, { borderColor: colors.trustCircleBorder, backgroundColor: colors.screen }]}>
           {personal.photoUrl ? (
-            <Image source={{ uri: personal.photoUrl }} style={styles.avatarImage} />
+            <Image source={{ uri: personal.photoUrl }} style={[styles.avatarImage, { backgroundColor: colors.trustCircleBg }]} />
           ) : (
-            <View style={[styles.avatarImage, styles.avatarFallback]}>
-              <Ionicons name="person" size={56} color={theme.colors.textMuted} />
+            <View style={[styles.avatarImage, styles.avatarFallback, { backgroundColor: colors.trustCircleBg }]}>
+              <Ionicons name="person" size={56} color={colors.mutedText} />
             </View>
           )}
         </View>
-        <Text style={styles.displayName}>{personal.fullName}</Text>
-        {username ? <Text style={styles.username}>{username}</Text> : null}
+        <Text style={[styles.displayName, { color: colors.bodyText }]}>{personal.fullName}</Text>
+        {username ? <Text style={[styles.username, { color: colors.mutedText }]}>{username}</Text> : null}
 
-        <View style={styles.trustScorePill}>
-          <View style={styles.trustScoreCircle}>
-            <Text style={styles.trustScoreValue}>{personal.trustScore ?? '—'}</Text>
+        <View style={[styles.trustScorePill, { backgroundColor: colors.trustPill }]}>
+          <View
+            style={[
+              styles.trustScoreCircle,
+              { borderColor: colors.trustCircleBorder, backgroundColor: colors.trustCircleBg },
+            ]}
+          >
+            <Text style={[styles.trustScoreValue, { color: colors.trustValue }]}>
+              {personal.trustScore ?? '—'}
+            </Text>
           </View>
-          <Text style={styles.trustScoreLabel}>TRUST SCORE</Text>
+          <Text style={[styles.trustScoreLabel, { color: colors.trustLabel }]}>TRUST SCORE</Text>
         </View>
 
         <Pressable
@@ -293,7 +426,7 @@ function PersonalProfileView({
           style={({ pressed }) => [styles.editButtonWrapper, pressed && styles.pressed]}
         >
           <LinearGradient
-            colors={[theme.colors.primary, theme.colors.primaryDark]}
+            colors={[colors.headerTitle === '#E0E7FF' ? '#818CF8' : theme.colors.primary, colors.headerTitle === '#E0E7FF' ? '#4F46E5' : theme.colors.primaryDark]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.editButton}
@@ -303,41 +436,46 @@ function PersonalProfileView({
         </Pressable>
       </View>
 
-      <SectionHeader title="Activity Overview" />
+      <SectionHeader title="Activity Overview" colors={colors} />
       <View style={styles.rowGroup}>
         <ListRow
           icon="calendar-outline"
-          iconColor={theme.colors.primary}
-          iconBg="#EEF0FF"
+          iconColor={colors.headerTitle}
+          iconBg={colors.backButtonBg}
           label="My Created Events"
+          colors={colors}
           onPress={onAction('My Created Events')}
         />
         <ListRow
           icon="star-outline"
-          iconColor="#16A34A"
-          iconBg="#DCFCE7"
+          iconColor={colors.ratingText}
+          iconBg={colors.ratingPill}
           label="Reviews Received"
+          colors={colors}
           onPress={onAction('Reviews Received')}
         />
         <ListRow
           icon="trending-up-outline"
-          iconColor="#DB2777"
-          iconBg="#FCE7F3"
+          iconColor={colors.trustLabel}
+          iconBg={colors.trustPill}
           label="Activity Stats"
+          colors={colors}
           onPress={onAction('Activity Stats')}
         />
         <ListRow
           icon="ribbon-outline"
-          iconColor={theme.colors.text}
-          iconBg="#E5E7EB"
+          iconColor={colors.bodyText}
+          iconBg={colors.rowCard}
           label="Achievements and Badges"
+          colors={colors}
           onPress={onAction('Achievements and Badges')}
         />
       </View>
 
-      <SectionHeader title="Settings" />
+      <SectionHeader title="Settings" colors={colors} />
       <SettingsRows
         darkMode={darkMode}
+        colors={colors}
         onToggleDarkMode={onToggleDarkMode}
         onAction={onAction}
         onLogout={onLogout}
@@ -350,6 +488,7 @@ function PersonalProfileView({
 function BusinessProfileView({
   business,
   darkMode,
+  colors,
   onToggleDarkMode,
   onAction,
   onLogout,
@@ -357,67 +496,74 @@ function BusinessProfileView({
 }: {
   business: BusinessData;
   darkMode: boolean;
+  colors: ProfileColors;
   onToggleDarkMode: (value: boolean) => void;
   onAction: ActionFactory;
   onLogout: () => void;
   onDeleteAccount: () => void;
 }) {
   return (
-    <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-      <View style={styles.businessCard}>
+    <ScrollView
+      contentContainerStyle={[styles.scrollContent, { backgroundColor: colors.screen }]}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={[styles.businessCard, { backgroundColor: colors.businessCard, shadowColor: colors.bodyText === '#F9FAFB' ? '#000' : '#000' }]}>
         {business.coverUrl ? (
-          <Image source={{ uri: business.coverUrl }} style={styles.coverImage} />
+          <Image source={{ uri: business.coverUrl }} style={[styles.coverImage, { backgroundColor: colors.trustCircleBg }]} />
         ) : (
-          <View style={[styles.coverImage, styles.coverFallback]}>
-            <Ionicons name="image-outline" size={32} color={theme.colors.textMuted} />
+          <View style={[styles.coverImage, styles.coverFallback, { backgroundColor: colors.rowCard }]}>
+            <Ionicons name="image-outline" size={32} color={colors.mutedText} />
           </View>
         )}
-        <View style={styles.logoRing}>
+        <View style={[styles.logoRing, { borderColor: colors.card, backgroundColor: colors.card }]}>
           {business.logoUrl ? (
-            <Image source={{ uri: business.logoUrl }} style={styles.logoImage} />
+            <Image source={{ uri: business.logoUrl }} style={[styles.logoImage, { backgroundColor: colors.trustCircleBg }]} />
           ) : (
-            <View style={[styles.logoImage, styles.avatarFallback]}>
-              <Ionicons name="business" size={32} color={theme.colors.textMuted} />
+            <View style={[styles.logoImage, styles.avatarFallback, { backgroundColor: colors.rowCard }]}>
+              <Ionicons name="business" size={32} color={colors.mutedText} />
             </View>
           )}
         </View>
         <View style={styles.businessMeta}>
-          <Text style={styles.businessName}>{business.businessName}</Text>
+          <Text style={[styles.businessName, { color: colors.bodyText }]}>{business.businessName}</Text>
           <View style={styles.businessInfoRow}>
-            <View style={styles.ratingPill}>
-              <Ionicons name="star" size={13} color="#16A34A" />
-              <Text style={styles.ratingValue}>
+            <View style={[styles.ratingPill, { backgroundColor: colors.ratingPill }]}>
+              <Ionicons name="star" size={13} color={colors.ratingText} />
+              <Text style={[styles.ratingValue, { color: colors.ratingText }]}>
                 {business.rating != null ? business.rating.toFixed(1) : '—'}
               </Text>
             </View>
-            <Text style={styles.locationText} numberOfLines={1}>
+            <Text style={[styles.locationText, { color: colors.locationText }]} numberOfLines={1}>
               {business.locationText ?? 'Location not set'}
             </Text>
           </View>
         </View>
       </View>
 
-      <SectionHeader title="MANAGEMENT" variant="eyebrow" />
+      <SectionHeader title="MANAGEMENT" variant="eyebrow" colors={colors} />
       <View style={styles.rowGroup}>
         <ListRow
           icon="calendar-outline"
-          iconColor={theme.colors.primary}
-          iconBg="#EEF0FF"
+          iconColor={colors.headerTitle}
+          iconBg={colors.backButtonBg}
           label="My Created Events"
+          colors={colors}
           onPress={onAction('My Created Events')}
         />
         <ListRow
           icon="star-outline"
-          iconColor="#DB2777"
-          iconBg="#FCE7F3"
+          iconColor={colors.trustLabel}
+          iconBg={colors.trustPill}
           label="Reviews Received"
+          colors={colors}
           onPress={onAction('Reviews Received')}
         />
       </View>
 
-      <SectionHeader title="SETTINGS & SUPPORT" variant="eyebrow" />
+      <SectionHeader title="SETTINGS & SUPPORT" variant="eyebrow" colors={colors} />
       <SettingsRows
         darkMode={darkMode}
+        colors={colors}
         onToggleDarkMode={onToggleDarkMode}
         onAction={onAction}
         onLogout={onLogout}
@@ -429,12 +575,14 @@ function BusinessProfileView({
 
 function SettingsRows({
   darkMode,
+  colors,
   onToggleDarkMode,
   onAction,
   onLogout,
   onDeleteAccount,
 }: {
   darkMode: boolean;
+  colors: ProfileColors;
   onToggleDarkMode: (value: boolean) => void;
   onAction: ActionFactory;
   onLogout: () => void;
@@ -444,48 +592,53 @@ function SettingsRows({
     <View style={styles.rowGroup}>
       <ListRow
         icon="moon-outline"
-        iconColor={theme.colors.text}
-        iconBg="#E5E7EB"
+        iconColor={colors.bodyText}
+        iconBg={colors.rowCard}
         label="Dark Mode"
+        colors={colors}
         rightAccessory={
           <Switch
             value={darkMode}
             onValueChange={onToggleDarkMode}
-            trackColor={{ true: theme.colors.primary, false: '#D1D5DB' }}
-            thumbColor="#FFFFFF"
-            ios_backgroundColor="#D1D5DB"
+            trackColor={{ true: colors.headerTitle, false: colors.toggleTrackOff }}
+            thumbColor={colors.card}
+            ios_backgroundColor={colors.toggleTrackOff}
           />
         }
       />
       <ListRow
         icon="information-circle-outline"
-        iconColor={theme.colors.text}
-        iconBg="#E5E7EB"
+        iconColor={colors.bodyText}
+        iconBg={colors.rowCard}
         label="About Meet Me There"
+        colors={colors}
         onPress={onAction('About Meet Me There')}
       />
       <ListRow
         icon="shield-checkmark-outline"
-        iconColor={theme.colors.text}
-        iconBg="#E5E7EB"
+        iconColor={colors.bodyText}
+        iconBg={colors.rowCard}
         label="Privacy Policy"
+        colors={colors}
         onPress={onAction('Privacy Policy')}
       />
       <ListRow
         icon="log-out-outline"
-        iconColor={theme.colors.error}
-        iconBg="#FEE2E2"
+        iconColor={colors.destructiveIcon}
+        iconBg={colors.destructiveBg}
         label="Log Out"
-        labelColor={theme.colors.error}
+        labelColor={colors.destructiveText}
+        colors={colors}
         onPress={onLogout}
         hideChevron
       />
       <ListRow
         icon="trash-outline"
-        iconColor={theme.colors.error}
-        iconBg="#FEE2E2"
+        iconColor={colors.destructiveIcon}
+        iconBg={colors.destructiveBg}
         label="Delete Account"
-        labelColor={theme.colors.error}
+        labelColor={colors.destructiveText}
+        colors={colors}
         onPress={onDeleteAccount}
         hideChevron
       />
@@ -496,12 +649,21 @@ function SettingsRows({
 function SectionHeader({
   title,
   variant = 'default',
+  colors,
 }: {
   title: string;
   variant?: 'default' | 'eyebrow';
+  colors: ProfileColors;
 }) {
   return (
-    <Text style={variant === 'eyebrow' ? styles.sectionEyebrow : styles.sectionTitle}>{title}</Text>
+    <Text
+      style={[
+        variant === 'eyebrow' ? styles.sectionEyebrow : styles.sectionTitle,
+        { color: variant === 'eyebrow' ? colors.mutedText : colors.sectionText },
+      ]}
+    >
+      {title}
+    </Text>
   );
 }
 
@@ -514,6 +676,7 @@ function ListRow({
   onPress,
   rightAccessory,
   hideChevron = false,
+  colors,
 }: {
   icon: IoniconName;
   iconColor: string;
@@ -523,22 +686,25 @@ function ListRow({
   onPress?: () => void;
   rightAccessory?: ReactNode;
   hideChevron?: boolean;
+  colors?: ProfileColors;
 }) {
   const content = (
     <View style={styles.rowInner}>
       <View style={[styles.rowIconBox, { backgroundColor: iconBg }]}>
         <Ionicons name={icon} size={20} color={iconColor} />
       </View>
-      <Text style={[styles.rowLabel, labelColor ? { color: labelColor } : null]}>{label}</Text>
+      <Text style={[styles.rowLabel, { color: labelColor ?? colors?.bodyText ?? theme.colors.text }]}>
+        {label}
+      </Text>
       {rightAccessory ??
         (hideChevron ? null : (
-          <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+          <Ionicons name="chevron-forward" size={18} color={colors?.mutedText ?? theme.colors.textMuted} />
         ))}
     </View>
   );
 
   if (!onPress) {
-    return <View style={styles.rowCard}>{content}</View>;
+    return <View style={[styles.rowCard, { backgroundColor: colors?.rowCard ?? '#FFFFFF' }]}>{content}</View>;
   }
 
   return (
@@ -546,7 +712,11 @@ function ListRow({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={({ pressed }) => [styles.rowCard, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.rowCard,
+        { backgroundColor: colors?.rowCard ?? '#FFFFFF' },
+        pressed && styles.pressed,
+      ]}
     >
       {content}
     </Pressable>
@@ -556,7 +726,6 @@ function ListRow({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: theme.colors.surface,
   },
   header: {
     flexDirection: 'row',
@@ -572,7 +741,6 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: theme.fontSize.lg,
     fontWeight: '700',
-    color: theme.colors.primary,
   },
   pressed: {
     opacity: 0.7,
@@ -584,7 +752,6 @@ const styles = StyleSheet.create({
   },
   mutedText: {
     fontSize: theme.fontSize.md,
-    color: theme.colors.textMuted,
   },
   scrollContent: {
     paddingHorizontal: theme.spacing.lg,
@@ -603,17 +770,14 @@ const styles = StyleSheet.create({
     borderRadius: 68,
     padding: 4,
     borderWidth: 3,
-    borderColor: theme.colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.background,
     marginBottom: theme.spacing.xs,
   },
   avatarImage: {
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: theme.colors.surface,
   },
   avatarFallback: {
     alignItems: 'center',
@@ -622,17 +786,14 @@ const styles = StyleSheet.create({
   displayName: {
     fontSize: theme.fontSize.xl,
     fontWeight: '700',
-    color: theme.colors.text,
   },
   username: {
     fontSize: theme.fontSize.md,
-    color: theme.colors.textMuted,
     marginTop: -theme.spacing.xs,
   },
   trustScorePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FCE7F3',
     borderRadius: theme.radius.full,
     paddingVertical: 6,
     paddingLeft: 6,
@@ -645,21 +806,17 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     borderWidth: 2,
-    borderColor: '#DB2777',
-    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   trustScoreValue: {
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
-    color: '#BE185D',
   },
   trustScoreLabel: {
     fontSize: theme.fontSize.xs,
     fontWeight: '700',
     letterSpacing: 1,
-    color: '#BE185D',
   },
   editButtonWrapper: {
     width: '100%',
@@ -680,12 +837,10 @@ const styles = StyleSheet.create({
   },
 
   businessCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: theme.radius.lg,
     alignItems: 'center',
     paddingBottom: theme.spacing.lg,
     marginBottom: theme.spacing.xl,
-    shadowColor: '#000',
     shadowOpacity: 0.06,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
@@ -696,7 +851,6 @@ const styles = StyleSheet.create({
     height: 160,
     borderTopLeftRadius: theme.radius.lg,
     borderTopRightRadius: theme.radius.lg,
-    backgroundColor: theme.colors.surface,
   },
   coverFallback: {
     alignItems: 'center',
@@ -708,8 +862,6 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 40,
     borderWidth: 4,
-    borderColor: '#FFFFFF',
-    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -718,7 +870,6 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: theme.colors.surface,
   },
   businessMeta: {
     alignItems: 'center',
@@ -729,7 +880,6 @@ const styles = StyleSheet.create({
   businessName: {
     fontSize: theme.fontSize.xl,
     fontWeight: '700',
-    color: theme.colors.text,
     textAlign: 'center',
   },
   businessInfoRow: {
@@ -742,7 +892,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#DCFCE7',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: 4,
     borderRadius: theme.radius.full,
@@ -750,18 +899,15 @@ const styles = StyleSheet.create({
   ratingValue: {
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
-    color: '#15803D',
   },
   locationText: {
     flexShrink: 1,
     fontSize: theme.fontSize.sm,
-    color: theme.colors.textMuted,
   },
 
   sectionTitle: {
     fontSize: theme.fontSize.lg,
     fontWeight: '700',
-    color: theme.colors.text,
     marginBottom: theme.spacing.md,
     marginTop: theme.spacing.sm,
   },
@@ -769,7 +915,6 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.xs,
     fontWeight: '700',
     letterSpacing: 1.2,
-    color: theme.colors.textMuted,
     marginBottom: theme.spacing.md,
     marginTop: theme.spacing.sm,
   },
@@ -779,11 +924,9 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.lg,
   },
   rowCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: theme.radius.lg,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.md,
-    shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 1 },
@@ -805,6 +948,5 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: theme.fontSize.md,
     fontWeight: '600',
-    color: theme.colors.text,
   },
 });

@@ -6,13 +6,14 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { Button } from '../../src/ui/Button';
 import { Screen } from '../../src/ui/Screen';
-import { theme } from '../../src/ui/theme';
+import { theme, useThemeColors } from '../../src/ui/theme';
 
 const RESEND_COOLDOWN_MS = 60 * 1000; // 1 minute
 
 export default function VerifyEmail() {
   const router = useRouter();
   const { user, reloadUser, resendVerificationEmail, signOut } = useAuth();
+  const colors = useThemeColors();
 
   const [checking, setChecking] = useState(false);
   const [resending, setResending] = useState(false);
@@ -83,20 +84,20 @@ export default function VerifyEmail() {
   return (
     <Screen scrollable>
       <View style={styles.hero}>
-        <View style={styles.iconCircle}>
-          <Ionicons name="mail-unread-outline" size={40} color={theme.colors.primary} />
+        <View style={[styles.iconCircle, { backgroundColor: colors.surface }]}>
+          <Ionicons name="mail-unread-outline" size={40} color={colors.primary} />
         </View>
-        <Text style={styles.title}>Check your email</Text>
-        <Text style={styles.subtitle}>We&apos;ve sent a verification link to</Text>
-        {user?.email ? <Text style={styles.email}>{user.email}</Text> : null}
-        <Text style={styles.body}>
+        <Text style={[styles.title, { color: colors.text }]}>Check your email</Text>
+        <Text style={[styles.subtitle, { color: colors.textMuted }]}>We&apos;ve sent a verification link to</Text>
+        {user?.email ? <Text style={[styles.email, { color: colors.text }]}>{user.email}</Text> : null}
+        <Text style={[styles.body, { color: colors.textMuted }]}>
           Click the link in the email to verify your account. This page will refresh automatically
           once you&apos;re verified.
         </Text>
       </View>
 
-      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {notice ? <Text style={[styles.notice, { color: colors.primary }]}>{notice}</Text> : null}
+      {error ? <Text style={[styles.error, { color: colors.error }]}>{error}</Text> : null}
 
       <View style={styles.actions}>
         <Button
@@ -116,7 +117,7 @@ export default function VerifyEmail() {
           ]}
           accessibilityRole="button"
         >
-          <Text style={styles.resendText}>
+          <Text style={[styles.resendText, { color: colors.primary }]}>
             {resending
               ? 'Sending…'
               : cooldownLeft > 0
@@ -126,7 +127,7 @@ export default function VerifyEmail() {
         </Pressable>
 
         <Pressable onPress={onUseDifferentAccount} style={styles.footerLinkWrap}>
-          <Text style={styles.footerLink}>Use a different account</Text>
+          <Text style={[styles.footerLink, { color: colors.textMuted }]}>Use a different account</Text>
         </Pressable>
       </View>
     </Screen>
@@ -143,7 +144,6 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#EEF0FF',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: theme.spacing.lg,
@@ -151,38 +151,32 @@ const styles = StyleSheet.create({
   title: {
     fontSize: theme.fontSize.xl,
     fontWeight: '700',
-    color: theme.colors.text,
     textAlign: 'center',
   },
   subtitle: {
     fontSize: theme.fontSize.md,
-    color: theme.colors.textMuted,
     marginTop: theme.spacing.sm,
     textAlign: 'center',
   },
   email: {
     fontSize: theme.fontSize.md,
     fontWeight: '600',
-    color: theme.colors.text,
     marginTop: theme.spacing.xs,
     textAlign: 'center',
   },
   body: {
     fontSize: theme.fontSize.sm,
-    color: theme.colors.textMuted,
     marginTop: theme.spacing.lg,
     textAlign: 'center',
     lineHeight: 20,
     paddingHorizontal: theme.spacing.md,
   },
   notice: {
-    color: theme.colors.primary,
     textAlign: 'center',
     marginBottom: theme.spacing.md,
     fontSize: theme.fontSize.sm,
   },
   error: {
-    color: theme.colors.error,
     textAlign: 'center',
     marginBottom: theme.spacing.md,
     fontSize: theme.fontSize.sm,
@@ -193,7 +187,6 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.md,
   },
   resendText: {
-    color: theme.colors.primary,
     fontSize: theme.fontSize.md,
     fontWeight: '600',
   },
@@ -201,7 +194,6 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.4 },
   footerLinkWrap: { alignItems: 'center', marginTop: theme.spacing.md },
   footerLink: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     textDecorationLine: 'underline',
   },
