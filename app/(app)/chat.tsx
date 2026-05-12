@@ -25,10 +25,11 @@ import {
 } from '../../src/lib/mockEvents';
 import { Input } from '../../src/ui/Input';
 import { ScreenHeader } from '../../src/ui/ScreenHeader';
-import { theme } from '../../src/ui/theme';
+import { theme, useThemeColors } from '../../src/ui/theme';
 
 export default function Chat() {
   const router = useRouter();
+  const colors = useThemeColors();
   const params = useLocalSearchParams<{ eventId?: string }>();
   const eventId = Array.isArray(params.eventId) ? params.eventId[0] : params.eventId;
   const event = useMemo(() => getEventById(eventId ?? 'jazz-night'), [eventId]);
@@ -45,12 +46,12 @@ export default function Chat() {
 
   if (!event) {
     return (
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
         <ScreenHeader title="Event Chat" onBack={() => router.back()} />
         <View style={styles.emptyState}>
-          <Ionicons name="chatbubbles-outline" size={32} color={theme.colors.textMuted} />
-          <Text style={styles.emptyTitle}>Chat unavailable</Text>
-          <Text style={styles.emptyText}>The selected event chat could not be found.</Text>
+          <Ionicons name="chatbubbles-outline" size={32} color={colors.textMuted} />
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>Chat unavailable</Text>
+          <Text style={[styles.emptyText, { color: colors.textMuted }]}>The selected event chat could not be found.</Text>
         </View>
       </SafeAreaView>
     );
@@ -105,7 +106,7 @@ export default function Chat() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
       <ScreenHeader title="Event Chat" onBack={() => router.back()} />
 
       <KeyboardAvoidingView
@@ -113,15 +114,15 @@ export default function Chat() {
         style={styles.flex}
       >
         <View style={styles.chatHeader}>
-          <Text style={styles.eventTitle} numberOfLines={1}>
+          <Text style={[styles.eventTitle, { color: colors.text }]} numberOfLines={1}>
             {event.title}
           </Text>
-          <Text style={styles.onlineText}>{Math.max(event.participantNames.length, 12)} members online</Text>
+          <Text style={[styles.onlineText, { color: colors.success }]}>{Math.max(event.participantNames.length, 12)} members online</Text>
         </View>
 
         <ScrollView contentContainerStyle={styles.messages} showsVerticalScrollIndicator={false}>
-          <View style={styles.dateSeparator}>
-            <Text style={styles.dateSeparatorText}>TODAY</Text>
+          <View style={[styles.dateSeparator, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.dateSeparatorText, { color: colors.textMuted }]}>TODAY</Text>
           </View>
 
           {messages.map((message) => (
@@ -134,23 +135,23 @@ export default function Chat() {
         </ScrollView>
 
         {attachmentLabel ? (
-          <View style={styles.attachmentChip}>
-            <Ionicons name="attach-outline" size={16} color={theme.colors.primary} />
-            <Text style={styles.attachmentText}>{attachmentLabel}</Text>
+          <View style={[styles.attachmentChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Ionicons name="attach-outline" size={16} color={colors.primary} />
+            <Text style={[styles.attachmentText, { color: colors.primary }]}>{attachmentLabel}</Text>
             <Pressable onPress={() => setAttachmentLabel(undefined)} hitSlop={8}>
-              <Ionicons name="close" size={16} color={theme.colors.textMuted} />
+              <Ionicons name="close" size={16} color={colors.textMuted} />
             </Pressable>
           </View>
         ) : null}
 
-        <View style={styles.inputBar}>
+        <View style={[styles.inputBar, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
           <Pressable
             onPress={handleAttachment}
             accessibilityRole="button"
             accessibilityLabel="Add attachment"
             style={({ pressed }) => [styles.inputIconButton, pressed && styles.pressed]}
           >
-            <Ionicons name="attach-outline" size={22} color={theme.colors.primary} />
+            <Ionicons name="attach-outline" size={22} color={colors.primary} />
           </Pressable>
           <View style={styles.inputWrap}>
             <Input
@@ -166,7 +167,7 @@ export default function Chat() {
             accessibilityLabel="Insert emoji"
             style={({ pressed }) => [styles.inputIconButton, pressed && styles.pressed]}
           >
-            <Ionicons name="happy-outline" size={22} color={theme.colors.primary} />
+            <Ionicons name="happy-outline" size={22} color={colors.primary} />
           </Pressable>
           <Pressable
             onPress={handleSend}
@@ -279,7 +280,6 @@ const styles = StyleSheet.create({
   dateSeparator: {
     alignSelf: 'center',
     borderRadius: theme.radius.full,
-    backgroundColor: '#E5E7EB',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: 5,
   },
@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   incomingBubble: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.background,
     borderTopLeftRadius: 4,
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -333,12 +333,12 @@ const styles = StyleSheet.create({
   },
   organizerBadge: {
     borderRadius: theme.radius.full,
-    backgroundColor: '#DCFCE7',
+    backgroundColor: '#12331F',
     paddingHorizontal: theme.spacing.xs,
     paddingVertical: 2,
   },
   organizerBadgeText: {
-    color: '#15803D',
+    color: '#86EFAC',
     fontSize: 10,
     fontWeight: '900',
   },
@@ -381,7 +381,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: theme.spacing.xs,
     borderRadius: theme.radius.full,
-    backgroundColor: '#EEF0FF',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
   },
@@ -399,7 +398,6 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.lg,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
-    backgroundColor: '#FFFFFF',
   },
   inputWrap: {
     flex: 1,
@@ -410,7 +408,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EEF0FF',
   },
   sendButton: {
     width: 42,

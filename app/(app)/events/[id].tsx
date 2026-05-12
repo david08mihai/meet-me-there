@@ -22,10 +22,11 @@ import {
 } from '../../../src/lib/mockEvents';
 import { Stars, TagPills } from '../../../src/ui/EventCard';
 import { ScreenHeader } from '../../../src/ui/ScreenHeader';
-import { theme } from '../../../src/ui/theme';
+import { theme, useThemeColors } from '../../../src/ui/theme';
 
 export default function EventDetails() {
   const router = useRouter();
+  const colors = useThemeColors();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const eventId = Array.isArray(id) ? id[0] : id;
   const [, setVersion] = useState(0);
@@ -35,12 +36,12 @@ export default function EventDetails() {
 
   if (!event) {
     return (
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
         <ScreenHeader title="Event Details" onBack={() => router.back()} />
         <View style={styles.emptyState}>
-          <Ionicons name="alert-circle-outline" size={32} color={theme.colors.textMuted} />
-          <Text style={styles.emptyTitle}>Event unavailable</Text>
-          <Text style={styles.emptyText}>The selected event could not be found.</Text>
+          <Ionicons name="alert-circle-outline" size={32} color={colors.textMuted} />
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>Event unavailable</Text>
+          <Text style={[styles.emptyText, { color: colors.textMuted }]}>The selected event could not be found.</Text>
         </View>
       </SafeAreaView>
     );
@@ -74,7 +75,7 @@ export default function EventDetails() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
       <ScreenHeader title="Event Details" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -82,48 +83,36 @@ export default function EventDetails() {
 
         <View style={styles.titleBlock}>
           <TagPills tags={event.tags} />
-          <Text style={styles.title}>{event.title}</Text>
-          <Text style={styles.description}>{event.description}</Text>
+          <Text style={[styles.title, { color: colors.text }]}>{event.title}</Text>
+          <Text style={[styles.description, { color: colors.textMuted }]}>{event.description}</Text>
         </View>
 
         <View style={styles.infoGrid}>
-          <InfoCard
-            icon="calendar-outline"
-            label="Date & Time"
-            value={formatEventSchedule(event)}
-          />
-          <InfoCard icon="location-outline" label="Location" value={event.venue} />
-          <InfoCard
-            icon="people-outline"
-            label="Capacity"
-            value={`${event.attendees}/${event.capacity} spots filled`}
-          />
-          <InfoCard
-            icon="ticket-outline"
-            label="Cost"
-            value={event.price > 0 ? `$${event.price} per guest` : 'Free'}
-          />
+          <InfoCard icon="calendar-outline" label="Date & Time" value={formatEventSchedule(event)} colors={colors} />
+          <InfoCard icon="location-outline" label="Location" value={event.venue} colors={colors} />
+          <InfoCard icon="people-outline" label="Capacity" value={`${event.attendees}/${event.capacity} spots filled`} colors={colors} />
+          <InfoCard icon="ticket-outline" label="Cost" value={event.price > 0 ? `$${event.price} per guest` : 'Free'} colors={colors} />
         </View>
 
-        <OrganizerCard event={event} />
+        <OrganizerCard event={event} colors={colors} />
 
         <Pressable
           onPress={() => setParticipantsOpen(true)}
           accessibilityRole="button"
-          style={({ pressed }) => [styles.participantsCard, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.participantsCard, { backgroundColor: colors.surface, borderColor: colors.border }, pressed && styles.pressed]}
         >
           <View style={styles.cardHeaderRow}>
-            <Text style={styles.sectionTitle}>Who's going</Text>
-            <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Who's going</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
           </View>
           <View style={styles.avatarRow}>
             {event.participantNames.slice(0, 4).map((name, index) => (
-              <View key={`${name}-${index}`} style={[styles.initialAvatar, { left: -index * 8 }]}>
-                <Text style={styles.initialText}>{name.slice(0, 1).toUpperCase()}</Text>
+              <View key={`${name}-${index}`} style={[styles.initialAvatar, { left: -index * 8, backgroundColor: colors.background === '#0F172A' ? '#1E293B' : '#EEF0FF', borderColor: colors.surface }]}>
+                <Text style={[styles.initialText, { color: colors.primary }]}>{name.slice(0, 1).toUpperCase()}</Text>
               </View>
             ))}
           </View>
-          <Text style={styles.participantSummary}>
+          <Text style={[styles.participantSummary, { color: colors.textMuted }]}>
             {event.participantNames.length > 0
               ? `${event.participantNames.slice(0, 3).join(', ')}${
                   event.participantNames.length > 3 ? ' and others' : ''
@@ -138,7 +127,7 @@ export default function EventDetails() {
               <Pressable
                 onPress={() => router.push({ pathname: '/chat', params: { eventId: event.id } })}
                 accessibilityRole="button"
-                style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.primary }, pressed && styles.pressed]}
               >
                 <Ionicons name="chatbubbles-outline" size={18} color="#FFFFFF" />
                 <Text style={styles.primaryButtonText}>See Chat</Text>
@@ -146,16 +135,16 @@ export default function EventDetails() {
               <Pressable
                 onPress={handleCancel}
                 accessibilityRole="button"
-                style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.secondaryButton, { borderColor: colors.error, backgroundColor: colors.surface }, pressed && styles.pressed]}
               >
-                <Text style={styles.secondaryButtonText}>Cancel Attendance</Text>
+                <Text style={[styles.secondaryButtonText, { color: colors.error }]}>Cancel Attendance</Text>
               </Pressable>
             </>
           ) : (
             <Pressable
               onPress={handleJoin}
               accessibilityRole="button"
-              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.primary }, pressed && styles.pressed]}
             >
               <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
               <Text style={styles.primaryButtonText}>Join Event</Text>
@@ -168,6 +157,7 @@ export default function EventDetails() {
         event={event}
         visible={participantsOpen}
         onClose={() => setParticipantsOpen(false)}
+        colors={colors}
       />
     </SafeAreaView>
   );
@@ -177,45 +167,49 @@ function InfoCard({
   icon,
   label,
   value,
+  colors,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: string;
+  colors: ReturnType<typeof useThemeColors>;
 }) {
+  const iconBg = colors.background === '#0F172A' ? '#1E293B' : '#EEF0FF';
   return (
-    <View style={styles.infoCard}>
-      <View style={styles.infoIcon}>
-        <Ionicons name={icon} size={18} color={theme.colors.primary} />
+    <View style={[styles.infoCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <View style={[styles.infoIcon, { backgroundColor: iconBg }]}>
+        <Ionicons name={icon} size={18} color={colors.primary} />
       </View>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue}>{value}</Text>
+      <Text style={[styles.infoLabel, { color: colors.textMuted }]}>{label}</Text>
+      <Text style={[styles.infoValue, { color: colors.text }]}>{value}</Text>
     </View>
   );
 }
 
-function OrganizerCard({ event }: { event: EventItem }) {
+function OrganizerCard({ event, colors }: { event: EventItem; colors: ReturnType<typeof useThemeColors> }) {
   const organizer = event.organizer;
   const isBusiness = organizer.type === 'business';
-
+  const trustBg = colors.background === '#0F172A' ? '#12331F' : '#DCFCE7';
+  const trustTextColor = colors.background === '#0F172A' ? '#86EFAC' : '#15803D';
   return (
-    <View style={styles.organizerCard}>
-      <Text style={styles.sectionTitle}>Organizer</Text>
+    <View style={[styles.organizerCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <Text style={[styles.sectionTitle, { color: colors.text }]}>Organizer</Text>
       <View style={styles.organizerRow}>
-        <Image source={{ uri: organizer.avatarUrl }} style={styles.organizerAvatar} />
+        <Image source={{ uri: organizer.avatarUrl }} style={[styles.organizerAvatar, { backgroundColor: colors.border }]} />
         <View style={styles.organizerTextWrap}>
-          <Text style={styles.organizerLabel}>{isBusiness ? 'Business account' : 'Registered user'}</Text>
-          <Text style={styles.organizerName}>{organizer.name}</Text>
+          <Text style={[styles.organizerLabel, { color: colors.textMuted }]}>{isBusiness ? 'Business account' : 'Registered user'}</Text>
+          <Text style={[styles.organizerName, { color: colors.text }]}>{organizer.name}</Text>
           {isBusiness ? (
             <View style={styles.ratingRow}>
               <Stars value={Math.round(organizer.rating ?? 0)} />
-              <Text style={styles.organizerMetric}>
+              <Text style={[styles.organizerMetric, { color: colors.textMuted }]}>
                 {organizer.rating?.toFixed(1) ?? '-'} stars
               </Text>
             </View>
           ) : (
-            <View style={styles.trustBadge}>
-              <Ionicons name="shield-checkmark-outline" size={15} color={theme.colors.success} />
-              <Text style={styles.trustText}>Trust Score: {organizer.trustScore ?? '-'}</Text>
+            <View style={[styles.trustBadge, { backgroundColor: trustBg }]}>
+              <Ionicons name="shield-checkmark-outline" size={15} color={trustTextColor} />
+              <Text style={[styles.trustText, { color: trustTextColor }]}>Trust Score: {organizer.trustScore ?? '-'}</Text>
             </View>
           )}
         </View>
@@ -228,27 +222,30 @@ function ParticipantsModal({
   event,
   visible,
   onClose,
+  colors,
 }: {
   event: EventItem;
   visible: boolean;
   onClose: () => void;
+  colors: ReturnType<typeof useThemeColors>;
 }) {
+  const avatarBg = colors.background === '#0F172A' ? '#1E293B' : '#EEF0FF';
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.modalBackdrop} onPress={onClose}>
-        <Pressable style={styles.modalSheet} onPress={() => {}}>
+        <Pressable style={[styles.modalSheet, { backgroundColor: colors.surface }]} onPress={() => {}}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Participation List</Text>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Participation List</Text>
             <Pressable onPress={onClose} hitSlop={10}>
-              <Ionicons name="close" size={22} color={theme.colors.textMuted} />
+              <Ionicons name="close" size={22} color={colors.textMuted} />
             </Pressable>
           </View>
           {event.participantNames.map((name, index) => (
             <View key={`${name}-${index}`} style={styles.participantRow}>
-              <View style={styles.modalAvatar}>
-                <Text style={styles.initialText}>{name.slice(0, 1).toUpperCase()}</Text>
+              <View style={[styles.modalAvatar, { backgroundColor: avatarBg }]}>
+                <Text style={[styles.initialText, { color: colors.primary }]}>{name.slice(0, 1).toUpperCase()}</Text>
               </View>
-              <Text style={styles.participantName}>{name}</Text>
+              <Text style={[styles.participantName, { color: colors.text }]}>{name}</Text>
             </View>
           ))}
         </Pressable>
@@ -260,7 +257,6 @@ function ParticipantsModal({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: theme.colors.surface,
   },
   content: {
     paddingHorizontal: theme.spacing.lg,
@@ -271,18 +267,15 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 220,
     borderRadius: 24,
-    backgroundColor: theme.colors.border,
   },
   titleBlock: {
     gap: theme.spacing.sm,
   },
   title: {
-    color: theme.colors.text,
     fontSize: 28,
     fontWeight: '900',
   },
   description: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.md,
     lineHeight: 23,
   },
@@ -295,9 +288,7 @@ const styles = StyleSheet.create({
     width: '47.5%',
     minHeight: 130,
     borderRadius: theme.radius.lg,
-    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: theme.colors.border,
     padding: theme.spacing.md,
     gap: theme.spacing.sm,
   },
@@ -307,30 +298,24 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EEF0FF',
   },
   infoLabel: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
     fontWeight: '800',
     textTransform: 'uppercase',
   },
   infoValue: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
     lineHeight: 19,
   },
   organizerCard: {
     borderRadius: theme.radius.lg,
-    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: theme.colors.border,
     padding: theme.spacing.lg,
     gap: theme.spacing.md,
   },
   sectionTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.lg,
     fontWeight: '800',
   },
@@ -343,20 +328,17 @@ const styles = StyleSheet.create({
     width: 58,
     height: 58,
     borderRadius: 29,
-    backgroundColor: theme.colors.surface,
   },
   organizerTextWrap: {
     flex: 1,
     gap: theme.spacing.xs,
   },
   organizerLabel: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
     fontWeight: '800',
     textTransform: 'uppercase',
   },
   organizerName: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.md,
     fontWeight: '800',
   },
@@ -366,7 +348,6 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
   },
   organizerMetric: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
@@ -376,20 +357,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: theme.spacing.xs,
     borderRadius: theme.radius.full,
-    backgroundColor: '#DCFCE7',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: 5,
   },
   trustText: {
-    color: '#15803D',
     fontSize: theme.fontSize.sm,
     fontWeight: '800',
   },
   participantsCard: {
     borderRadius: theme.radius.lg,
-    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: theme.colors.border,
     padding: theme.spacing.lg,
     gap: theme.spacing.md,
   },
@@ -409,17 +386,13 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EEF0FF',
     borderWidth: 2,
-    borderColor: '#FFFFFF',
   },
   initialText: {
-    color: theme.colors.primary,
     fontSize: theme.fontSize.sm,
     fontWeight: '900',
   },
   participantSummary: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
@@ -433,7 +406,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: theme.spacing.sm,
-    backgroundColor: theme.colors.primary,
   },
   primaryButtonText: {
     color: '#FFFFFF',
@@ -446,11 +418,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: theme.colors.error,
-    backgroundColor: '#FFFFFF',
   },
   secondaryButtonText: {
-    color: theme.colors.error,
     fontSize: theme.fontSize.md,
     fontWeight: '800',
   },
@@ -466,7 +435,6 @@ const styles = StyleSheet.create({
     maxHeight: '70%',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    backgroundColor: '#FFFFFF',
     padding: theme.spacing.lg,
     gap: theme.spacing.md,
   },
@@ -477,7 +445,6 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.sm,
   },
   modalTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.lg,
     fontWeight: '800',
   },
@@ -493,10 +460,8 @@ const styles = StyleSheet.create({
     borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EEF0FF',
   },
   participantName: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.md,
     fontWeight: '700',
   },
@@ -508,12 +473,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.xl,
   },
   emptyTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.md,
     fontWeight: '800',
   },
   emptyText: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     textAlign: 'center',
   },

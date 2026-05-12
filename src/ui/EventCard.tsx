@@ -6,7 +6,7 @@ import {
   formatEventSchedule,
   formatShortDate,
 } from '../lib/mockEvents';
-import { theme } from './theme';
+import { theme, useThemeColors } from './theme';
 
 type EventCardProps = {
   event: EventItem;
@@ -15,12 +15,13 @@ type EventCardProps = {
 };
 
 export function TagPills({ tags, limit }: { tags: string[]; limit?: number }) {
+  const colors = useThemeColors();
   const visible = typeof limit === 'number' ? tags.slice(0, limit) : tags;
   return (
     <View style={styles.tagRow}>
       {visible.map((tag) => (
-        <View key={tag} style={styles.tagPill}>
-          <Text style={styles.tagText}>{tag}</Text>
+        <View key={tag} style={[styles.tagPill, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.tagText, { color: colors.primary }]}>{tag}</Text>
         </View>
       ))}
     </View>
@@ -43,11 +44,18 @@ export function Stars({ value }: { value: number }) {
 }
 
 export function EventCard({ event, onPress, variant = 'default' }: EventCardProps) {
+  const colors = useThemeColors();
   const isPast = variant === 'past';
   const isCompact = variant === 'compact';
 
   const content = (
-    <View style={[styles.card, isCompact && styles.compactCard]}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: colors.card, borderColor: colors.border },
+        isCompact && styles.compactCard,
+      ]}
+    >
       <Image
         source={{ uri: event.imageUrl }}
         style={[styles.image, isCompact && styles.compactImage]}
@@ -55,40 +63,40 @@ export function EventCard({ event, onPress, variant = 'default' }: EventCardProp
 
       <View style={styles.body}>
         {isPast ? (
-          <Text style={styles.shortDate}>{formatShortDate(event.startsAt)}</Text>
+          <Text style={[styles.shortDate, { color: colors.primary }]}>{formatShortDate(event.startsAt)}</Text>
         ) : (
           <TagPills tags={event.tags} limit={isCompact ? 2 : 3} />
         )}
 
-        <Text style={[styles.title, isCompact && styles.compactTitle]} numberOfLines={2}>
+        <Text style={[styles.title, { color: colors.text }, isCompact && styles.compactTitle]} numberOfLines={2}>
           {event.title}
         </Text>
 
         {!isPast ? (
-          <Text style={styles.description} numberOfLines={isCompact ? 2 : 3}>
+          <Text style={[styles.description, { color: colors.textMuted }]} numberOfLines={isCompact ? 2 : 3}>
             {event.shortDescription}
           </Text>
         ) : null}
 
         <View style={styles.metaRow}>
-          <Ionicons name="time-outline" size={16} color={theme.colors.textMuted} />
-          <Text style={styles.metaText} numberOfLines={1}>
+          <Ionicons name="time-outline" size={16} color={colors.textMuted} />
+          <Text style={[styles.metaText, { color: colors.textMuted }]} numberOfLines={1}>
             {formatEventSchedule(event, !isCompact)}
           </Text>
         </View>
 
         <View style={styles.metaRow}>
-          <Ionicons name="location-outline" size={16} color={theme.colors.textMuted} />
-          <Text style={styles.metaText} numberOfLines={1}>
+          <Ionicons name="location-outline" size={16} color={colors.textMuted} />
+          <Text style={[styles.metaText, { color: colors.textMuted }]} numberOfLines={1}>
             {event.venue}
           </Text>
         </View>
 
         {isPast && event.review ? (
-          <View style={styles.reviewBox}>
-            <Text style={styles.reviewLabel}>My Review</Text>
+          <View style={[styles.reviewBox, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.reviewLabel, { color: colors.text }]}>My Review</Text>
             <Stars value={event.review.rating} />
-            <Text style={styles.reviewText}>{event.review.text}</Text>
+            <Text style={[styles.reviewText, { color: colors.textMuted }]}>{event.review.text}</Text>
           </View>
         ) : null}
       </View>
@@ -111,11 +119,9 @@ export function EventCard({ event, onPress, variant = 'default' }: EventCardProp
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#FFFFFF',
     borderRadius: theme.radius.lg,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: theme.colors.border,
     shadowColor: '#000',
     shadowOpacity: 0.06,
     shadowRadius: 12,
@@ -129,7 +135,6 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: 156,
-    backgroundColor: theme.colors.surface,
   },
   compactImage: {
     width: 116,
@@ -147,23 +152,19 @@ const styles = StyleSheet.create({
   },
   tagPill: {
     borderRadius: theme.radius.full,
-    backgroundColor: '#EEF0FF',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: 4,
   },
   tagText: {
-    color: theme.colors.primary,
     fontSize: theme.fontSize.xs,
     fontWeight: '700',
   },
   shortDate: {
-    color: theme.colors.primary,
     fontSize: theme.fontSize.sm,
     fontWeight: '800',
     textTransform: 'uppercase',
   },
   title: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.lg,
     fontWeight: '800',
   },
@@ -171,7 +172,6 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.md,
   },
   description: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 20,
   },
@@ -182,18 +182,15 @@ const styles = StyleSheet.create({
   },
   metaText: {
     flex: 1,
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
   },
   reviewBox: {
     marginTop: theme.spacing.xs,
     padding: theme.spacing.md,
     borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.surface,
     gap: theme.spacing.xs,
   },
   reviewLabel: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
@@ -202,7 +199,6 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   reviewText: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 19,
   },

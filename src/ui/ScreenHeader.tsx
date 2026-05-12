@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { theme } from './theme';
+import { theme, useThemeColors } from './theme';
 
 type Props = {
   title: string;
@@ -11,6 +11,8 @@ type Props = {
 };
 
 export function ScreenHeader({ title, onBack, right }: Props) {
+  const colors = useThemeColors();
+
   return (
     <View style={styles.header}>
       <View style={styles.leftSlot}>
@@ -20,13 +22,13 @@ export function ScreenHeader({ title, onBack, right }: Props) {
             hitSlop={12}
             accessibilityRole="button"
             accessibilityLabel="Go back"
-            style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.iconButton, { backgroundColor: colors.surface }, pressed && styles.pressed]}
           >
-            <Ionicons name="arrow-back" size={22} color={theme.colors.primary} />
+            <Ionicons name="arrow-back" size={22} color={colors.primary} />
           </Pressable>
         ) : null}
       </View>
-      <Text style={styles.title} numberOfLines={1}>
+      <Text style={[styles.title, { color: colors.primary }]} numberOfLines={1}>
         {title}
       </Text>
       <View style={styles.rightSlot}>{right}</View>
@@ -55,7 +57,6 @@ const styles = StyleSheet.create({
   title: {
     flex: 1,
     textAlign: 'center',
-    color: theme.colors.primary,
     fontSize: theme.fontSize.lg,
     fontWeight: '800',
   },
@@ -65,7 +66,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EEF0FF',
   },
   pressed: {
     opacity: 0.75,

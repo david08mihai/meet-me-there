@@ -73,16 +73,16 @@ export const validatePersonName = (
 ): ValidationResult => {
   const trimmed = value.trim();
   if (!trimmed) return emptyMessage;
-  if (trimmed.length < 2) return 'Must be at least 2 characters';
-  if (trimmed.length > 100) return 'Must be at most 100 characters';
+  if (trimmed.length < 2) return emptyMessage;
+  if (trimmed.length > 100) return emptyMessage;
   return null;
 };
 
 export const validateBusinessName = (value: string): ValidationResult => {
   const trimmed = value.trim();
   if (!trimmed) return 'Business name is required';
-  if (trimmed.length < 2) return 'Must be at least 2 characters';
-  if (trimmed.length > 150) return 'Must be at most 150 characters';
+  if (trimmed.length < 2) return 'Business name is required';
+  if (trimmed.length > 150) return 'Business name is required';
   return null;
 };
 
@@ -94,6 +94,13 @@ export const validatePhone = (value: string): ValidationResult => {
   } catch {
     return 'Please enter a valid phone number';
   }
+  return null;
+};
+
+export const validateSocialMedia = (value: string): ValidationResult => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!URL_REGEX.test(trimmed)) return 'Please enter a valid social media URL';
   return null;
 };
 
@@ -117,7 +124,13 @@ export const validateDateOfBirth = (value: Date | null): ValidationResult => {
 export const validateShortDescription = (value: string): ValidationResult => {
   const trimmed = value.trim();
   if (!trimmed) return 'Short description is required';
-  if (trimmed.length > 500) return 'Must be at most 500 characters';
+  if (trimmed.length > 500) return 'Short description is required';
+  return null;
+};
+
+export const validateBusinessCategory = (value: string): ValidationResult => {
+  const trimmed = value.trim();
+  if (!trimmed) return 'Business category is required';
   return null;
 };
 

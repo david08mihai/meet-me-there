@@ -2,7 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { theme } from './theme';
+import { theme, useThemeColors } from './theme';
 
 const ACCEPTED = /\.(jpg|jpeg|png)$/i;
 
@@ -20,6 +20,7 @@ export function PhotoPicker({
   placeholderLabel = 'Add photo',
 }: Props) {
   const [loading, setLoading] = useState(false);
+  const colors = useThemeColors();
 
   const pick = async () => {
     try {
@@ -57,18 +58,18 @@ export function PhotoPicker({
       <Pressable
         onPress={pick}
         disabled={loading}
-        style={({ pressed }) => [styles.frame, shapeStyle, pressed && styles.pressed]}
+        style={({ pressed }) => [styles.frame, shapeStyle, { borderColor: colors.border, backgroundColor: colors.surface }, pressed && styles.pressed]}
         accessibilityRole="button"
       >
         {value ? (
           <Image source={{ uri: value }} style={[styles.image, shapeStyle]} />
         ) : (
-          <Text style={styles.placeholder}>{loading ? 'Loading…' : placeholderLabel}</Text>
+          <Text style={[styles.placeholder, { color: colors.textMuted }]}>{loading ? 'Loading…' : placeholderLabel}</Text>
         )}
       </Pressable>
       {value ? (
         <Pressable onPress={() => onChange(null)}>
-          <Text style={styles.remove}>Remove</Text>
+          <Text style={[styles.remove, { color: colors.error }]}>Remove</Text>
         </Pressable>
       ) : null}
     </View>
@@ -83,8 +84,6 @@ const styles = StyleSheet.create({
     width: SIZE,
     height: SIZE,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -94,10 +93,9 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.8 },
   image: { width: SIZE, height: SIZE },
   placeholder: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
     textAlign: 'center',
     paddingHorizontal: theme.spacing.sm,
   },
-  remove: { color: theme.colors.error, fontSize: theme.fontSize.sm },
+  remove: { fontSize: theme.fontSize.sm },
 });

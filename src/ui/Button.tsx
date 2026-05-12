@@ -6,7 +6,7 @@ import {
   ViewStyle,
 } from 'react-native';
 
-import { theme } from './theme';
+import { theme, useThemeColors } from './theme';
 
 type Variant = 'primary' | 'secondary' | 'ghost';
 
@@ -28,6 +28,7 @@ export function Button({
   style,
 }: Props) {
   const isDisabled = disabled || loading;
+  const colors = useThemeColors();
 
   return (
     <Pressable
@@ -35,7 +36,13 @@ export function Button({
       disabled={isDisabled}
       style={({ pressed }) => [
         styles.base,
-        styles[variant],
+        variant === 'primary' && { backgroundColor: colors.primary },
+        variant === 'secondary' && {
+          backgroundColor: colors.surface,
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        variant === 'ghost' && { backgroundColor: 'transparent' },
         isDisabled && styles.disabled,
         pressed && !isDisabled && styles.pressed,
         style,
@@ -44,11 +51,16 @@ export function Button({
       accessibilityState={{ disabled: isDisabled, busy: loading }}
     >
       {loading ? (
-        <ActivityIndicator
-          color={variant === 'primary' ? '#fff' : theme.colors.primary}
-        />
+        <ActivityIndicator color={variant === 'primary' ? '#fff' : colors.primary} />
       ) : (
-        <Text style={[styles.label, labelStyles[variant]]}>{label}</Text>
+        <Text
+          style={[
+            styles.label,
+            { color: variant === 'primary' ? '#fff' : variant === 'secondary' ? colors.text : colors.primary },
+          ]}
+        >
+          {label}
+        </Text>
       )}
     </Pressable>
   );
@@ -62,20 +74,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: theme.spacing.lg,
   },
-  primary: { backgroundColor: theme.colors.primary },
-  secondary: {
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  ghost: { backgroundColor: 'transparent' },
   disabled: { opacity: 0.5 },
   pressed: { opacity: 0.8 },
   label: { fontSize: theme.fontSize.md, fontWeight: '600' },
-});
-
-const labelStyles = StyleSheet.create({
-  primary: { color: '#fff' },
-  secondary: { color: theme.colors.text },
-  ghost: { color: theme.colors.primary },
 });

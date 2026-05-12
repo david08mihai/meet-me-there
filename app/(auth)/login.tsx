@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Link, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,11 +21,14 @@ import { supabase } from '../../src/lib/supabase';
 import { validateEmail } from '../../src/lib/validation';
 import { ErrorBanner } from '../../src/ui/ErrorBanner';
 import { Input } from '../../src/ui/Input';
-import { theme } from '../../src/ui/theme';
+import { theme, useThemeColors } from '../../src/ui/theme';
 
 export default function Login() {
   const router = useRouter();
   const { setLocalSession } = useAuth();
+  const emailInputRef = useRef<TextInput>(null);
+  const colors = useThemeColors();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -32,6 +36,42 @@ export default function Login() {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [suspendedAccount, setSuspendedAccount] = useState(false);
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const [showResendEmail, setShowResendEmail] = useState(false);
+  const [resendingEmail, setResendingEmail] = useState(false);
+
+  // Timer for cooldown and resend email state
+  useEffect(() => {
+    if (!cooldownUntil) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [cooldownUntil]);
+
+  const cooldownLeft = cooldownUntil ? Math.max(0, cooldownUntil - now) : 0;
+  const cooldownMinutes = Math.ceil(cooldownLeft / 60000);
+  const isLockedOut = cooldownLeft > 0;
+
+  const handleResendEmail = async () => {
+    setResendingEmail(true);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim().toLowerCase(),
+      });
+
+      if (!error) {
+        setErrorMessage('Verification email sent. Please check your inbox.');
+        setShowResendEmail(false);
+      }
+    } catch {
+      setErrorMessage('Failed to resend email. Please try again.');
+    } finally {
+      setResendingEmail(false);
+    }
+  };
 
   const handleLogin = async () => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -41,8 +81,17 @@ export default function Login() {
     setEmailError(nextEmailError);
     setPasswordError(nextPasswordError);
     setErrorMessage(null);
+    setShowResendEmail(false);
 
     if (nextEmailError || nextPasswordError) return;
+    if (isLockedOut) {
+      setErrorMessage(`Too many login attempts. Please try again in ${cooldownMinutes} minute${cooldownMinutes !== 1 ? 's' : ''}.`);
+      return;
+    }
+    if (suspendedAccount) {
+      setErrorMessage('Your account has been suspended. Please contact support');
+      return;
+    }
 
     try {
       setLoading(true);
@@ -50,16 +99,21 @@ export default function Login() {
         email: normalizedEmail,
         password,
       });
+
       if (error) throw error;
 
       const user = data.user;
       if (!user) throw new Error('Something went wrong. Please try again.');
 
       if (!user.email_confirmed_at) {
-        router.replace('/verify-email');
+        setShowResendEmail(true);
+        setErrorMessage('Please verify your email before logging in');
         return;
       }
 
+      // Success - reset attempt counter
+      setFailedAttempts(0);
+      setCooldownUntil(null);
       router.replace('/map');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to log in';
@@ -69,6 +123,8 @@ export default function Login() {
 
         if (localUser) {
           await setLocalSession(localUser);
+          setFailedAttempts(0);
+          setCooldownUntil(null);
           router.replace('/map');
           return;
         }
@@ -79,34 +135,44 @@ export default function Login() {
         return;
       }
 
+      // Handle suspended account
+      if (message.toLowerCase().includes('account is disabled') ||
+          message.toLowerCase().includes('suspended')) {
+        setSuspendedAccount(true);
+        setErrorMessage('Your account has been suspended. Please contact support');
+        return;
+      }
+
+      // Handle email not confirmed
       if (message.toLowerCase().includes('email not confirmed')) {
-        let resendError: unknown = null;
-        try {
-          const { error } = await supabase.auth.resend({
-            type: 'signup',
-            email: normalizedEmail,
-          });
-          resendError = error;
-        } catch (error) {
-          resendError = error;
+        setShowResendEmail(true);
+        setErrorMessage('Please verify your email before logging in');
+        return;
+      }
+
+      // Handle invalid credentials
+      if (message.toLowerCase().includes('invalid login credentials') ||
+          message.toLowerCase().includes('invalid grant')) {
+        setPassword('');
+        setPasswordError(null);
+        emailInputRef.current?.blur();
+
+        // Increment failed attempts and set cooldown if needed
+        const newAttempts = failedAttempts + 1;
+        setFailedAttempts(newAttempts);
+
+        if (newAttempts >= 5) {
+          const cooldownEnd = Date.now() + (15 * 60 * 1000); // 15 minutes
+          setCooldownUntil(cooldownEnd);
+          setErrorMessage('Too many login attempts. Please try again in 15 minutes.');
+        } else {
+          setErrorMessage('Invalid email or password');
         }
-
-        setErrorMessage(
-          resendError
-            ? 'Email not confirmed. Please check your inbox for the confirmation email.'
-            : 'Email not confirmed. I sent you a new confirmation email. Please confirm it, then log in again.',
-        );
         return;
       }
 
-      if (message.toLowerCase().includes('invalid login credentials')) {
-        setErrorMessage(
-          'Invalid login credentials. If this account was created before the Supabase setup, create it again with Sign Up or reset the password.',
-        );
-        return;
-      }
-
-      setErrorMessage(message);
+      // Unknown error
+      setErrorMessage('Something went wrong. Please try again');
     } finally {
       setLoading(false);
     }
@@ -114,12 +180,12 @@ export default function Login() {
 
   return (
     <LinearGradient
-      colors={['#EEF0FF', '#E4F5ED']}
+      colors={colors.background === '#0F172A' ? ['#0F172A', '#111827'] : ['#EEF0FF', '#E4F5ED']}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.gradientBg}
     >
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.flex}
@@ -129,8 +195,8 @@ export default function Login() {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <View style={styles.card}>
-              <View style={styles.logoCircle}>
+            <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={[styles.logoCircle, { backgroundColor: colors.surface }]}>
                 <View
                   style={[
                     styles.logoDot,
@@ -151,43 +217,46 @@ export default function Login() {
                 />
               </View>
 
-              <Text style={styles.title}>Welcome Back</Text>
-              <Text style={styles.subtitle}>Sign in to find your friends</Text>
+              <Text style={[styles.title, { color: colors.text }]}>Welcome Back</Text>
+              <Text style={[styles.subtitle, { color: colors.textMuted }]}>Sign in to find your friends</Text>
 
               {errorMessage ? <ErrorBanner message={errorMessage} /> : null}
 
               <View style={styles.field}>
-                <Text style={styles.label}>Email</Text>
+                <Text style={[styles.label, { color: colors.text }]}>Email</Text>
                 <Input
+                  ref={emailInputRef}
                   variant="pill"
                   value={email}
                   onChangeText={(value) => {
                     setEmail(value);
                     setEmailError(null);
                     setErrorMessage(null);
+                    setShowResendEmail(false);
                   }}
                   placeholder="hello@example.com"
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
                   error={emailError}
+                  editable={!suspendedAccount}
                   leftElement={
                     <Ionicons
                       name="mail-outline"
                       size={18}
-                      color={theme.colors.textMuted}
+                      color={colors.textMuted}
                     />
                   }
                 />
-                {emailError ? <Text style={styles.fieldError}>{emailError}</Text> : null}
+                {emailError ? <Text style={[styles.fieldError, { color: colors.error }]}>{emailError}</Text> : null}
               </View>
 
               <View style={styles.field}>
                 <View style={styles.labelRow}>
-                  <Text style={styles.label}>Password</Text>
+                  <Text style={[styles.label, { color: colors.text }]}>Password</Text>
                   <Link href="/forgot-password" asChild>
-                    <Pressable hitSlop={8}>
-                      <Text style={styles.forgotText}>Forgot Password?</Text>
+                    <Pressable hitSlop={8} disabled={suspendedAccount}>
+                      <Text style={[styles.forgotText, { color: colors.primary }, suspendedAccount && styles.disabled]}>Forgot Password?</Text>
                     </Pressable>
                   </Link>
                 </View>
@@ -198,23 +267,26 @@ export default function Login() {
                     setPassword(value);
                     setPasswordError(null);
                     setErrorMessage(null);
+                    setShowResendEmail(false);
                   }}
                   placeholder="••••••••"
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   autoCorrect={false}
                   error={passwordError}
+                  editable={!suspendedAccount}
                   leftElement={
                     <Ionicons
                       name="lock-closed-outline"
                       size={18}
-                      color={theme.colors.textMuted}
+                      color={colors.textMuted}
                     />
                   }
                   rightElement={
                     <Pressable
                       onPress={() => setShowPassword((v) => !v)}
                       hitSlop={8}
+                      disabled={suspendedAccount}
                       accessibilityRole="button"
                       accessibilityLabel={
                         showPassword ? 'Hide password' : 'Show password'
@@ -223,25 +295,56 @@ export default function Login() {
                       <Ionicons
                         name={showPassword ? 'eye-off-outline' : 'eye-outline'}
                         size={18}
-                        color={theme.colors.textMuted}
+                        color={colors.textMuted}
                       />
                     </Pressable>
                   }
                 />
-                {passwordError ? <Text style={styles.fieldError}>{passwordError}</Text> : null}
+                {passwordError ? <Text style={[styles.fieldError, { color: colors.error }]}>{passwordError}</Text> : null}
               </View>
+
+              {isLockedOut && (
+                <View style={styles.timerBanner}>
+                  <Ionicons name="time-outline" size={16} color={colors.error} />
+                  <Text style={[styles.timerText, { color: colors.error }]}>
+                    Try again in {cooldownMinutes} minute{cooldownMinutes !== 1 ? 's' : ''}
+                  </Text>
+                </View>
+              )}
+
+              {showResendEmail && (
+                <Pressable
+                  onPress={handleResendEmail}
+                  disabled={resendingEmail}
+                  style={({ pressed }) => [styles.resendButton, pressed && styles.pressed]}
+                >
+                  {resendingEmail ? (
+                    <ActivityIndicator color={colors.primary} />
+                  ) : (
+                    <>
+                      <Ionicons name="mail-outline" size={16} color={colors.primary} />
+                      <Text style={[styles.resendButtonText, { color: colors.primary }]}>Resend Verification Email</Text>
+                    </>
+                  )}
+                </Pressable>
+              )}
 
               <Pressable
                 onPress={handleLogin}
-                disabled={loading}
+                disabled={loading || isLockedOut || suspendedAccount}
                 accessibilityRole="button"
                 style={({ pressed }) => [
                   styles.loginButtonWrap,
                   (pressed || loading) && styles.pressed,
+                  (isLockedOut || suspendedAccount) && styles.disabled,
                 ]}
               >
                 <LinearGradient
-                  colors={[theme.colors.primary, '#8B8EEE']}
+                  colors={
+                    isLockedOut || suspendedAccount
+                        ? [colors.textMuted, colors.textMuted]
+                        : [colors.primary, '#8B8EEE']
+                  }
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={styles.loginButton}
@@ -255,12 +358,12 @@ export default function Login() {
               </Pressable>
 
               <View style={styles.signupRow}>
-                <Text style={styles.signupText}>
+                <Text style={[styles.signupText, { color: colors.textMuted }]}>
                   Don&apos;t have an account?{' '}
                 </Text>
                 <Link href="/register" asChild>
                   <Pressable hitSlop={8}>
-                    <Text style={styles.signupLink}>Sign Up</Text>
+                    <Text style={[styles.signupLink, { color: colors.primary }]}>Sign Up</Text>
                   </Pressable>
                 </Link>
               </View>
@@ -378,5 +481,42 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
     color: theme.colors.primary,
+  },
+  timerBanner: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    backgroundColor: '#FFE8E8',
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.radius.md,
+    marginBottom: theme.spacing.md,
+  },
+  timerText: {
+    flex: 1,
+    fontSize: theme.fontSize.sm,
+    fontWeight: '600',
+    color: theme.colors.error,
+  },
+  resendButton: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.sm,
+    paddingVertical: theme.spacing.md,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    marginBottom: theme.spacing.md,
+  },
+  resendButtonText: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: '600',
+    color: theme.colors.primary,
+  },
+  disabled: {
+    opacity: 0.5,
   },
 });

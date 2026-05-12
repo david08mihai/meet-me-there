@@ -1,7 +1,7 @@
 import { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { theme } from './theme';
+import { theme, useThemeColors } from './theme';
 
 type Props = {
   value: boolean;
@@ -11,6 +11,8 @@ type Props = {
 };
 
 export function Checkbox({ value, onChange, label, error }: Props) {
+  const colors = useThemeColors();
+
   return (
     <View>
       <Pressable
@@ -22,17 +24,16 @@ export function Checkbox({ value, onChange, label, error }: Props) {
         <View
           style={[
             styles.box,
-            value && styles.boxChecked,
-            error && !value ? styles.boxErrored : null,
+            { backgroundColor: value ? colors.primary : colors.background, borderColor: error && !value ? colors.error : value ? colors.primary : colors.border },
           ]}
         >
-          {value ? <Text style={styles.check}>✓</Text> : null}
+          {value ? <Text style={[styles.check, { color: '#FFFFFF' }]}>✓</Text> : null}
         </View>
         <View style={styles.labelWrap}>
-          {typeof label === 'string' ? <Text style={styles.label}>{label}</Text> : label}
+          {typeof label === 'string' ? <Text style={[styles.label, { color: colors.text }]}>{label}</Text> : label}
         </View>
       </Pressable>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: colors.error }]}>{error}</Text> : null}
     </View>
   );
 }
@@ -44,23 +45,15 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: theme.radius.sm,
     borderWidth: 1,
-    borderColor: theme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: theme.spacing.sm,
     marginTop: 2,
-    backgroundColor: theme.colors.background,
   },
-  boxChecked: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
-  },
-  boxErrored: { borderColor: theme.colors.error },
-  check: { color: '#fff', fontSize: 14, fontWeight: '700', lineHeight: 16 },
+  check: { fontSize: 14, fontWeight: '700', lineHeight: 16 },
   labelWrap: { flex: 1 },
   label: {
     fontSize: theme.fontSize.sm,
-    color: theme.colors.text,
     lineHeight: 20,
   },
   error: {

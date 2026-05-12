@@ -20,7 +20,7 @@ import { supabase } from '../../src/lib/supabase';
 import { validateEmail } from '../../src/lib/validation';
 import { ErrorBanner } from '../../src/ui/ErrorBanner';
 import { Input } from '../../src/ui/Input';
-import { theme } from '../../src/ui/theme';
+import { theme, useThemeColors } from '../../src/ui/theme';
 
 type Stage = 'forgot' | 'reset';
 type ResetErrors = Partial<Record<'password' | 'confirm', string>>;
@@ -32,6 +32,7 @@ const firstParam = (value: string | string[] | undefined) =>
 
 export default function ForgotPassword() {
   const router = useRouter();
+  const colors = useThemeColors();
   const params = useLocalSearchParams<{
     mode?: string;
     type?: string;
@@ -62,6 +63,7 @@ export default function ForgotPassword() {
   const [requestCount, setRequestCount] = useState(0);
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [isDevReset, setIsDevReset] = useState(false);
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -77,26 +79,41 @@ export default function ForgotPassword() {
   const cooldownLeft = cooldownUntil ? Math.max(0, cooldownUntil - now) : 0;
   const cooldownMinutes = Math.ceil(cooldownLeft / 60000);
 
+  // DEV: Simulate reset link for local testing
+  const simulateResetLink = () => {
+    setStage('reset');
+    setError(null);
+    setNotice(null);
+    setEmail('');
+    setIsDevReset(true);
+  };
+
   const validatePassword = () => {
     const nextErrors: ResetErrors = {};
 
-    if (!password) nextErrors.password = 'Password is required';
-    else if (/\s/.test(password)) nextErrors.password = 'Password cannot contain spaces';
-    else if (password.length < 8) nextErrors.password = 'Password must be at least 8 characters';
-    else if (password.length > 64) nextErrors.password = 'Password is too long (max 64 characters)';
-    else {
+    if (!password) {
+      nextErrors.password = 'Password is required';
+    } else if (/\s/.test(password)) {
+      nextErrors.password = 'Password cannot contain spaces';
+    } else if (password.length < 8) {
+      nextErrors.password = 'Password must be at least 8 characters';
+    } else if (password.length > 64) {
+      nextErrors.password = 'Password is too long (max 64 characters)';
+    } else {
       const hasUpper = /[A-Z]/.test(password);
       const hasLower = /[a-z]/.test(password);
       const hasDigit = /\d/.test(password);
       const hasSpecial = /[^A-Za-z0-9]/.test(password);
       if (!hasUpper || !hasLower || !hasDigit || !hasSpecial) {
-        nextErrors.password =
-          'Password must include uppercase, lowercase, number, and special character';
+        nextErrors.password = 'Password must include uppercase, lowercase, number, and special character';
       }
     }
 
-    if (!confirmPassword) nextErrors.confirm = 'Please confirm your password';
-    else if (confirmPassword !== password) nextErrors.confirm = 'Passwords do not match';
+    if (!confirmPassword) {
+      nextErrors.confirm = 'Please confirm your password';
+    } else if (confirmPassword !== password) {
+      nextErrors.confirm = 'Passwords do not match';
+    }
 
     setResetErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -156,6 +173,20 @@ export default function ForgotPassword() {
     setError(null);
 
     if (!validatePassword()) return;
+    // DEV: Skip Supabase call in dev mode
+    if (isDevReset) {
+      Alert.alert('✅ Dev Test Success', 'Password validation passed (dev mode - not actually updated).', [
+        { text: 'OK', onPress: () => {
+          setPassword('');
+          setConfirmPassword('');
+          setResetErrors({});
+          setIsDevReset(false);
+          setStage('forgot');
+        }},
+      ]);
+      return;
+    }
+
 
     try {
       setLoading(true);
@@ -174,7 +205,7 @@ export default function ForgotPassword() {
         setError('This reset link has already been used. Please request a new one.');
       } else if (message.includes('weak')) {
         setResetErrors({ password: 'Password is too weak. Please choose a stronger password.' });
-      } else if (message.includes('session') || message.includes('token')) {
+      } else if (message.includes('session') || message.includes('token') || message.includes('invalid')) {
         setError('This reset link is invalid.');
       } else {
         setError('Something went wrong. Please try again.');
@@ -186,12 +217,12 @@ export default function ForgotPassword() {
 
   return (
     <LinearGradient
-      colors={['#EEF0FF', '#E4F5ED']}
+      colors={colors.background === '#0F172A' ? ['#0F172A', '#111827'] : ['#EEF0FF', '#E4F5ED']}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.gradientBg}
     >
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: 'transparent' }]}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.flex}
@@ -201,26 +232,35 @@ export default function ForgotPassword() {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <View style={styles.card}>
-              <View style={styles.iconCircle}>
+            <View style={[styles.card, { backgroundColor: colors.surface, shadowColor: colors.text }]}>
+              <View style={[styles.iconCircle, { backgroundColor: colors.background === '#0F172A' ? '#1E293B' : '#EEF0FF' }]}>
                 <Ionicons
-                  name={stage === 'forgot' ? 'key-outline' : 'lock-open-outline'}
+                  name={stage === 'forgot' ? 'key-outline' : 'refresh-circle-outline'}
                   size={34}
-                  color={theme.colors.primary}
+                  color={colors.primary}
                 />
               </View>
 
-              <Text style={styles.title}>
+              <Text style={[styles.title, { color: colors.text }]}>
                 {stage === 'forgot' ? 'Forgot Password' : 'Reset Password'}
               </Text>
-              <Text style={styles.subtitle}>
+              <Text style={[styles.subtitle, { color: colors.textMuted }]}>
                 {stage === 'forgot'
                   ? 'Enter your email to receive a reset link.'
-                  : 'Choose a new password for your account.'}
+                  : 'Please enter and confirm your new password to regain access to your account.'}
               </Text>
 
               {error ? <ErrorBanner message={error} /> : null}
-              {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+              {notice ? <Text style={[styles.notice, { color: colors.primary }]}>{notice}</Text> : null}
+
+              {stage === 'forgot' && __DEV__ ? (
+                <Pressable
+                  onPress={simulateResetLink}
+                  style={({ pressed }) => [styles.devButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.devButtonText}>🧪 Test: Simulate Reset Link</Text>
+                </Pressable>
+              ) : null}
 
               {stage === 'forgot' ? (
                 <ForgotForm
@@ -269,7 +309,7 @@ export default function ForgotPassword() {
 
               <Link href="/login" asChild>
                 <Pressable style={({ pressed }) => [styles.footerLinkWrap, pressed && styles.pressed]}>
-                  <Text style={styles.footerLink}>Back to login</Text>
+                  <Text style={[styles.footerLink, { color: colors.textMuted }]}>Back to login</Text>
                 </Pressable>
               </Link>
             </View>
@@ -297,10 +337,11 @@ function ForgotForm({
   onEmailChange: (value: string) => void;
   onSubmit: () => void;
 }) {
+  const colors = useThemeColors();
   return (
     <View style={styles.form}>
       <View style={styles.field}>
-        <Text style={styles.label}>Email</Text>
+        <Text style={[styles.label, { color: colors.text }]}>Email</Text>
         <Input
           value={email}
           onChangeText={onEmailChange}
@@ -310,9 +351,9 @@ function ForgotForm({
           autoCorrect={false}
           variant="pill"
           error={emailError}
-          leftElement={<Ionicons name="mail-outline" size={18} color={theme.colors.textMuted} />}
+          leftElement={<Ionicons name="mail-outline" size={18} color={colors.textMuted} />}
         />
-        {emailError ? <Text style={styles.fieldError}>{emailError}</Text> : null}
+        {emailError ? <Text style={[styles.fieldError, { color: colors.error }]}>{emailError}</Text> : null}
       </View>
 
       <Pressable
@@ -322,6 +363,7 @@ function ForgotForm({
         accessibilityState={{ disabled: loading || cooldownLeft > 0, busy: loading }}
         style={({ pressed }) => [
           styles.primaryButton,
+          { backgroundColor: colors.primary },
           (pressed || loading) && styles.pressed,
           cooldownLeft > 0 && styles.disabled,
         ]}
@@ -361,10 +403,11 @@ function ResetForm({
   onTogglePassword: () => void;
   onSubmit: () => void;
 }) {
+  const colors = useThemeColors();
   return (
     <View style={styles.form}>
       <View style={styles.field}>
-        <Text style={styles.label}>New Password</Text>
+        <Text style={[styles.label, { color: colors.text }]}>New Password</Text>
         <Input
           value={password}
           onChangeText={onPasswordChange}
@@ -374,22 +417,22 @@ function ResetForm({
           autoCorrect={false}
           variant="pill"
           error={errors.password}
-          leftElement={<Ionicons name="lock-closed-outline" size={18} color={theme.colors.textMuted} />}
+          leftElement={<Ionicons name="lock-closed-outline" size={18} color={colors.textMuted} />}
           rightElement={
             <Pressable onPress={onTogglePassword} hitSlop={8}>
               <Ionicons
                 name={showPassword ? 'eye-off-outline' : 'eye-outline'}
                 size={18}
-                color={theme.colors.textMuted}
+                color={colors.textMuted}
               />
             </Pressable>
           }
         />
-        {errors.password ? <Text style={styles.fieldError}>{errors.password}</Text> : null}
+        {errors.password ? <Text style={[styles.fieldError, { color: colors.error }]}>{errors.password}</Text> : null}
       </View>
 
       <View style={styles.field}>
-        <Text style={styles.label}>Confirm New Password</Text>
+        <Text style={[styles.label, { color: colors.text }]}>Confirm New Password</Text>
         <Input
           value={confirmPassword}
           onChangeText={onConfirmPasswordChange}
@@ -399,9 +442,9 @@ function ResetForm({
           autoCorrect={false}
           variant="pill"
           error={errors.confirm}
-          leftElement={<Ionicons name="lock-closed-outline" size={18} color={theme.colors.textMuted} />}
+          leftElement={<Ionicons name="lock-closed-outline" size={18} color={colors.textMuted} />}
         />
-        {errors.confirm ? <Text style={styles.fieldError}>{errors.confirm}</Text> : null}
+        {errors.confirm ? <Text style={[styles.fieldError, { color: colors.error }]}>{errors.confirm}</Text> : null}
       </View>
 
       <Pressable
@@ -409,12 +452,12 @@ function ResetForm({
         disabled={loading}
         accessibilityRole="button"
         accessibilityState={{ disabled: loading, busy: loading }}
-        style={({ pressed }) => [styles.primaryButton, (pressed || loading) && styles.pressed]}
+        style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.primary }, (pressed || loading) && styles.pressed]}
       >
         {loading ? (
           <ActivityIndicator color="#FFFFFF" />
         ) : (
-          <Text style={styles.primaryButtonText}>Reset Password</Text>
+          <Text style={styles.primaryButtonText}>Save Password</Text>
         )}
       </Pressable>
     </View>
@@ -437,11 +480,9 @@ const styles = StyleSheet.create({
     padding: theme.spacing.lg,
   },
   card: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 24,
     paddingHorizontal: theme.spacing.xl,
     paddingVertical: theme.spacing.xxl,
-    shadowColor: '#000',
     shadowOpacity: 0.06,
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 8 },
@@ -454,17 +495,14 @@ const styles = StyleSheet.create({
     borderRadius: 34,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EEF0FF',
     marginBottom: theme.spacing.lg,
   },
   title: {
-    color: theme.colors.text,
     fontSize: 28,
     fontWeight: '900',
     textAlign: 'center',
   },
   subtitle: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.md,
     textAlign: 'center',
     lineHeight: 22,
@@ -472,7 +510,6 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xl,
   },
   notice: {
-    color: theme.colors.primary,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
     lineHeight: 20,
@@ -486,12 +523,10 @@ const styles = StyleSheet.create({
     gap: theme.spacing.xs,
   },
   label: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
   fieldError: {
-    color: theme.colors.error,
     fontSize: theme.fontSize.xs,
     fontWeight: '700',
   },
@@ -500,7 +535,6 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.primary,
     marginTop: theme.spacing.sm,
   },
   primaryButtonText: {
@@ -514,7 +548,6 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.lg,
   },
   secondaryActionText: {
-    color: theme.colors.primary,
     fontSize: theme.fontSize.sm,
     fontWeight: '900',
   },
@@ -523,7 +556,6 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.xl,
   },
   footerLink: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     textDecorationLine: 'underline',
   },
@@ -532,5 +564,20 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.78,
+  },
+  devButton: {
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.radius.md,
+    backgroundColor: '#FFF0F0',
+    borderWidth: 1,
+    borderColor: '#FFCCCC',
+    marginBottom: theme.spacing.md,
+    alignItems: 'center',
+  },
+  devButtonText: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: '600',
+    color: '#FF6B6B',
   },
 });

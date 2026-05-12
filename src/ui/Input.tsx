@@ -1,7 +1,7 @@
 import { ReactNode, forwardRef, useState } from 'react';
 import { StyleSheet, TextInput, TextInputProps, View } from 'react-native';
 
-import { theme } from './theme';
+import { theme, useThemeColors } from './theme';
 
 type Props = TextInputProps & {
   error?: string | null;
@@ -22,18 +22,23 @@ export const Input = forwardRef<TextInput, Props>(function Input(props, ref) {
     ...rest
   } = props;
   const [focused, setFocused] = useState(false);
+  const colors = useThemeColors();
 
   const hasAffix = Boolean(leftElement || rightElement);
   const wrapperStyle = [
     variant === 'pill' ? styles.pillWrap : styles.wrap,
     focused && styles.focused,
     error && styles.errored,
+    {
+      backgroundColor: variant === 'pill' ? colors.surface : colors.background,
+      borderColor: error ? colors.error : focused ? colors.primary : colors.border,
+    },
   ];
 
   const textInput = (
     <TextInput
       ref={ref}
-      placeholderTextColor={theme.colors.textMuted}
+      placeholderTextColor={colors.textMuted}
       {...rest}
       onFocus={(e) => {
         setFocused(true);
@@ -47,6 +52,11 @@ export const Input = forwardRef<TextInput, Props>(function Input(props, ref) {
         hasAffix || variant === 'pill' ? styles.inputInner : styles.input,
         focused && !hasAffix && variant === 'default' && styles.focused,
         error && !hasAffix && variant === 'default' && styles.errored,
+        {
+          backgroundColor: variant === 'default' ? colors.background : 'transparent',
+          color: colors.text,
+        },
+        rest.multiline && { height: 'auto' },
         style,
       ]}
     />
@@ -67,20 +77,15 @@ const styles = StyleSheet.create({
   input: {
     height: 48,
     borderWidth: 1,
-    borderColor: theme.colors.border,
     borderRadius: theme.radius.md,
     paddingHorizontal: theme.spacing.md,
-    backgroundColor: theme.colors.background,
-    color: theme.colors.text,
     fontSize: theme.fontSize.md,
   },
   wrap: {
     height: 48,
     borderWidth: 1,
-    borderColor: theme.colors.border,
     borderRadius: theme.radius.md,
     paddingHorizontal: theme.spacing.sm,
-    backgroundColor: theme.colors.background,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -88,14 +93,12 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 26,
     paddingHorizontal: theme.spacing.md,
-    backgroundColor: theme.colors.surface,
     flexDirection: 'row',
     alignItems: 'center',
   },
   inputInner: {
     flex: 1,
     height: '100%',
-    color: theme.colors.text,
     fontSize: theme.fontSize.md,
     paddingHorizontal: theme.spacing.sm,
   },
@@ -104,6 +107,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  focused: { borderColor: theme.colors.primary },
-  errored: { borderColor: theme.colors.error },
+  focused: {},
+  errored: {},
 });

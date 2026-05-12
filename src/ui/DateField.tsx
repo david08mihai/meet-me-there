@@ -2,7 +2,7 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import React, { useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { theme } from './theme';
+import { theme, useThemeColors } from './theme';
 
 type Props = {
   value: Date | null;
@@ -31,6 +31,8 @@ function fromYMD(value: string): Date | null {
 
 // Web implementation uses the browser's native <input type="date">.
 function WebDateField({ value, onChange, error, maximumDate, minimumDate }: Props) {
+  const colors = useThemeColors();
+
   return React.createElement('input', {
     type: 'date',
     value: value ? toYMD(value) : '',
@@ -44,12 +46,12 @@ function WebDateField({ value, onChange, error, maximumDate, minimumDate }: Prop
       height: 48,
       width: '100%',
       boxSizing: 'border-box',
-      border: `1px solid ${error ? theme.colors.error : theme.colors.border}`,
+      border: `1px solid ${error ? colors.error : colors.border}`,
       borderRadius: theme.radius.md,
       padding: `0 ${theme.spacing.md}px`,
       fontSize: theme.fontSize.md,
-      color: theme.colors.text,
-      backgroundColor: theme.colors.background,
+      color: colors.text,
+      backgroundColor: colors.background,
       fontFamily: 'inherit',
       outline: 'none',
     },
@@ -63,6 +65,7 @@ export function DateField(props: Props) {
 
 function NativeDateField(props: Props) {
   const { value, onChange, placeholder = 'Select date', error, maximumDate, minimumDate } = props;
+  const colors = useThemeColors();
 
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Date>(value ?? new Date(2000, 0, 1));
@@ -83,10 +86,13 @@ function NativeDateField(props: Props) {
           setDraft(value ?? new Date(2000, 0, 1));
           setOpen(true);
         }}
-        style={[styles.trigger, error ? styles.errored : null]}
+        style={[
+          styles.trigger,
+          { backgroundColor: colors.background, borderColor: error ? colors.error : colors.border },
+        ]}
         accessibilityRole="button"
       >
-        <Text style={[styles.value, !value && styles.placeholder]}>
+        <Text style={[styles.value, { color: colors.text }, !value && { color: colors.textMuted }]}>
           {value ? toYMD(value) : placeholder}
         </Text>
       </Pressable>
@@ -110,10 +116,10 @@ function NativeDateField(props: Props) {
           onRequestClose={() => setOpen(false)}
         >
           <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
-            <Pressable style={styles.sheet} onPress={() => {}}>
-              <View style={styles.sheetHeader}>
+            <Pressable style={[styles.sheet, { backgroundColor: colors.background }]} onPress={() => {}}>
+              <View style={[styles.sheetHeader, { borderBottomColor: colors.border }]}>
                 <Pressable onPress={() => setOpen(false)}>
-                  <Text style={styles.sheetAction}>Cancel</Text>
+                  <Text style={[styles.sheetAction, { color: colors.textMuted }]}>Cancel</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => {
@@ -121,7 +127,7 @@ function NativeDateField(props: Props) {
                     setOpen(false);
                   }}
                 >
-                  <Text style={[styles.sheetAction, styles.sheetDone]}>Done</Text>
+                  <Text style={[styles.sheetAction, { color: colors.primary, fontWeight: '600' }]}>Done</Text>
                 </Pressable>
               </View>
               <DateTimePicker
@@ -144,22 +150,18 @@ const styles = StyleSheet.create({
   trigger: {
     height: 48,
     borderWidth: 1,
-    borderColor: theme.colors.border,
     borderRadius: theme.radius.md,
     paddingHorizontal: theme.spacing.md,
-    backgroundColor: theme.colors.background,
     justifyContent: 'center',
   },
-  errored: { borderColor: theme.colors.error },
-  value: { fontSize: theme.fontSize.md, color: theme.colors.text },
-  placeholder: { color: theme.colors.textMuted },
+  value: { fontSize: theme.fontSize.md },
+  placeholder: {},
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: theme.colors.background,
     borderTopLeftRadius: theme.radius.lg,
     borderTopRightRadius: theme.radius.lg,
     paddingBottom: theme.spacing.lg,
@@ -169,12 +171,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: theme.spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
   },
   sheetAction: {
     fontSize: theme.fontSize.md,
-    color: theme.colors.textMuted,
     paddingHorizontal: theme.spacing.sm,
   },
-  sheetDone: { color: theme.colors.primary, fontWeight: '600' },
 });

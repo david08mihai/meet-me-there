@@ -20,13 +20,14 @@ import {
 } from '../../src/lib/mockEvents';
 import { Input } from '../../src/ui/Input';
 import { ScreenHeader } from '../../src/ui/ScreenHeader';
-import { theme } from '../../src/ui/theme';
+import { theme, useThemeColors } from '../../src/ui/theme';
 
 type PaymentMethod = 'apple' | 'card';
 type PaymentErrors = Partial<Record<'cardNumber' | 'expiry' | 'cvv', string>>;
 
 export default function ReviewPurchase() {
   const router = useRouter();
+  const colors = useThemeColors();
   const params = useLocalSearchParams<{ eventId?: string }>();
   const eventId = Array.isArray(params.eventId) ? params.eventId[0] : params.eventId;
   const event = useMemo(() => getEventById(eventId), [eventId]);
@@ -40,12 +41,12 @@ export default function ReviewPurchase() {
 
   if (!event) {
     return (
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
         <ScreenHeader title="Review Purchase" onBack={() => router.back()} />
         <View style={styles.emptyState}>
-          <Ionicons name="alert-circle-outline" size={32} color={theme.colors.textMuted} />
-          <Text style={styles.emptyTitle}>Ticket unavailable</Text>
-          <Text style={styles.emptyText}>The selected ticket could not be found.</Text>
+          <Ionicons name="alert-circle-outline" size={32} color={colors.textMuted} />
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>Ticket unavailable</Text>
+          <Text style={[styles.emptyText, { color: colors.textMuted }]}>The selected ticket could not be found.</Text>
         </View>
       </SafeAreaView>
     );
@@ -115,42 +116,42 @@ export default function ReviewPurchase() {
       .trim();
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
       <ScreenHeader title="Review Purchase" onBack={() => router.back()} />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}
       >
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { backgroundColor: colors.background }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
           {banner ? (
             <View style={styles.errorBanner}>
-              <Ionicons name="alert-circle-outline" size={18} color={theme.colors.error} />
-              <Text style={styles.errorBannerText}>{banner}</Text>
+              <Ionicons name="alert-circle-outline" size={18} color={colors.error} />
+              <Text style={[styles.errorBannerText, { color: colors.error }]}>{banner}</Text>
             </View>
           ) : null}
 
-          <View style={styles.ticketCard}>
-            <Text style={styles.cardEyebrow}>Ticket Detail</Text>
-            <Text style={styles.eventTitle}>{event.title}</Text>
+          <View style={[styles.ticketCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.cardEyebrow, { color: colors.textMuted }]}>Ticket Detail</Text>
+            <Text style={[styles.eventTitle, { color: colors.text }]}>{event.title}</Text>
             <View style={styles.ticketRow}>
-              <Ionicons name="calendar-outline" size={17} color={theme.colors.textMuted} />
-              <Text style={styles.ticketText}>{formatEventSchedule(event, false)}</Text>
+              <Ionicons name="calendar-outline" size={17} color={colors.textMuted} />
+              <Text style={[styles.ticketText, { color: colors.textMuted }]}>{formatEventSchedule(event, false)}</Text>
             </View>
             <View style={styles.ticketRow}>
-              <Ionicons name="person-outline" size={17} color={theme.colors.textMuted} />
-              <Text style={styles.ticketText}>1x Guest</Text>
+              <Ionicons name="person-outline" size={17} color={colors.textMuted} />
+              <Text style={[styles.ticketText, { color: colors.textMuted }]}>1x Guest</Text>
             </View>
-            <View style={styles.priceBadge}>
-              <Text style={styles.priceText}>${total.toFixed(2)}</Text>
+            <View style={[styles.priceBadge, { backgroundColor: `${colors.success}22` }]}>
+              <Text style={[styles.priceText, { color: colors.success }]}>${total.toFixed(2)}</Text>
             </View>
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Payment Method</Text>
+          <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Payment Method</Text>
             <PaymentOption
               active={method === 'apple'}
               icon="logo-apple"
@@ -175,8 +176,8 @@ export default function ReviewPurchase() {
           </View>
 
           {method === 'card' ? (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Credit Card</Text>
+            <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Credit Card</Text>
               <Field label="Card Number" error={errors.cardNumber}>
                 <Input
                   value={cardNumber}
@@ -229,10 +230,10 @@ export default function ReviewPurchase() {
             accessibilityRole="button"
             style={({ pressed }) => [styles.payButton, pressed && styles.pressed]}
           >
-            <Text style={styles.payButtonText}>Pay Now - ${total.toFixed(2)}</Text>
+            <Text style={styles.payButtonText}>Pay Now • ${total.toFixed(2)}</Text>
           </Pressable>
 
-          <Text style={styles.termsText}>
+          <Text style={[styles.termsText, { color: colors.textMuted }]}>
             By clicking "Pay Now", you agree to our{' '}
             <Text style={styles.linkText} onPress={() => Alert.alert('Terms of Service')}>
               Terms of Service
@@ -262,6 +263,8 @@ function PaymentOption({
   subtitle: string;
   onPress: () => void;
 }) {
+  const colors = useThemeColors();
+
   return (
     <Pressable
       onPress={onPress}
@@ -274,11 +277,11 @@ function PaymentOption({
       ]}
     >
       <View style={styles.paymentIcon}>
-        <Ionicons name={icon} size={22} color={active ? theme.colors.primary : theme.colors.textMuted} />
+        <Ionicons name={icon} size={22} color={active ? colors.primary : colors.textMuted} />
       </View>
       <View style={styles.paymentTextWrap}>
-        <Text style={styles.paymentTitle}>{title}</Text>
-        <Text style={styles.paymentSubtitle}>{subtitle}</Text>
+        <Text style={[styles.paymentTitle, { color: colors.text }]}>{title}</Text>
+        <Text style={[styles.paymentSubtitle, { color: colors.textMuted }]}>{subtitle}</Text>
       </View>
       <View style={[styles.radio, active && styles.radioActive]}>
         {active ? <View style={styles.radioDot} /> : null}
@@ -296,11 +299,13 @@ function Field({
   error?: string;
   children: ReactNode;
 }) {
+  const colors = useThemeColors();
+
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      <Text style={[styles.fieldLabel, { color: colors.text }]}>{label}</Text>
       {children}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: colors.error }]}>{error}</Text> : null}
     </View>
   );
 }
@@ -324,8 +329,8 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
     borderRadius: theme.radius.lg,
     borderWidth: 1,
-    borderColor: '#FCA5A5',
-    backgroundColor: '#FEF2F2',
+    borderColor: theme.colors.error,
+    backgroundColor: '#3B1B21',
     padding: theme.spacing.md,
   },
   errorBannerText: {
@@ -336,7 +341,7 @@ const styles = StyleSheet.create({
   },
   ticketCard: {
     borderRadius: 24,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.background,
     borderWidth: 1,
     borderColor: theme.colors.border,
     padding: theme.spacing.lg,
@@ -368,18 +373,18 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     marginTop: theme.spacing.sm,
     borderRadius: theme.radius.full,
-    backgroundColor: '#DCFCE7',
+    backgroundColor: '#12331F',
     paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.sm,
   },
   priceText: {
-    color: '#15803D',
+    color: '#86EFAC',
     fontSize: theme.fontSize.md,
     fontWeight: '900',
   },
   section: {
     borderRadius: theme.radius.lg,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.background,
     borderWidth: 1,
     borderColor: theme.colors.border,
     padding: theme.spacing.lg,
@@ -400,17 +405,12 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     padding: theme.spacing.md,
   },
-  paymentOptionActive: {
-    borderColor: theme.colors.primary,
-    backgroundColor: '#EEF0FF',
-  },
   paymentIcon: {
     width: 42,
     height: 42,
     borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
   },
   paymentTextWrap: {
     flex: 1,
