@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
@@ -14,99 +14,375 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import {
-  ChatMessage,
-  getChatMessages,
-  getEventById,
-  markMessageDeleted,
-  receiveMockReply,
-  reportMessage,
-  sendChatMessage,
-} from '../../src/lib/mockEvents';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { supabase } from '../../src/lib/supabase';
 import { Input } from '../../src/ui/Input';
 import { ScreenHeader } from '../../src/ui/ScreenHeader';
-import { theme, useThemeColors } from '../../src/ui/theme';
+import { theme } from '../../src/ui/theme';
+
+type EventRow = {
+  event_id: number;
+  organizer_user_id: string;
+  title: string;
+};
+
+type EventChatRow = {
+  chat_id: number;
+  event_id: number;
+};
+
+type ChatMessageRow = {
+  message_id: number;
+  chat_id: number;
+  sender_user_id: string;
+  message_text: string | null;
+  sent_at: string;
+  is_deleted: boolean;
+};
+
+type PersonalProfileRow = {
+  user_id: string;
+  full_name: string;
+  photo_url: string | null;
+};
+
+type BusinessProfileRow = {
+  user_id: string;
+  business_name: string;
+  logo_url: string | null;
+};
+
+type DisplayMessage = {
+  id: number;
+  senderUserId: string;
+  senderName: string;
+  senderAvatar: string | null;
+  isOrganizer: boolean;
+  isCurrentUser: boolean;
+  text: string;
+  sentAt: string;
+  isDeleted: boolean;
+};
 
 export default function Chat() {
   const router = useRouter();
-  const colors = useThemeColors();
-  const params = useLocalSearchParams<{ eventId?: string }>();
-  const eventId = Array.isArray(params.eventId) ? params.eventId[0] : params.eventId;
-  const event = useMemo(() => getEventById(eventId ?? 'jazz-night'), [eventId]);
+  const { user } = useAuth();
 
-  const [messages, setMessages] = useState<ChatMessage[]>(() =>
-    getChatMessages(event?.id ?? 'jazz-night'),
-  );
+  const params = useLocalSearchParams<{ eventId?: string }>();
+  const rawEventId = Array.isArray(params.eventId) ? params.eventId[0] : params.eventId;
+  const eventId = rawEventId ? Number(rawEventId) : NaN;
+  const validEventId = useMemo(() => Number.isFinite(eventId), [eventId]);
+
+  const [event, setEvent] = useState<EventRow | null>(null);
+  const [chat, setChat] = useState<EventChatRow | null>(null);
+  const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [draft, setDraft] = useState('');
-  const [attachmentLabel, setAttachmentLabel] = useState<string | undefined>();
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+
+  const loadMessages = useCallback(
+    async (chatId: number, currentEvent: EventRow) => {
+      const { data: rawMessages, error: messagesError } = await supabase
+        .from('chat_messages')
+        .select('message_id, chat_id, sender_user_id, message_text, sent_at, is_deleted')
+        .eq('chat_id', chatId)
+        .order('sent_at', { ascending: true });
+
+      if (messagesError) throw messagesError;
+
+      const senderIds = [...new Set((rawMessages ?? []).map((m) => m.sender_user_id))];
+
+      let personalProfiles: PersonalProfileRow[] = [];
+      let businessProfiles: BusinessProfileRow[] = [];
+
+      if (senderIds.length > 0) {
+        const [{ data: personalData, error: personalError }, { data: businessData, error: businessError }] =
+          await Promise.all([
+            supabase
+              .from('personal_profiles')
+              .select('user_id, full_name, photo_url')
+              .in('user_id', senderIds),
+            supabase
+              .from('business_profiles')
+              .select('user_id, business_name, logo_url')
+              .in('user_id', senderIds),
+          ]);
+
+        if (personalError) throw personalError;
+        if (businessError) throw businessError;
+
+        personalProfiles = personalData ?? [];
+        businessProfiles = businessData ?? [];
+      }
+
+      const personalMap = new Map(personalProfiles.map((p) => [p.user_id, p]));
+      const businessMap = new Map(businessProfiles.map((b) => [b.user_id, b]));
+
+      const hydrated: DisplayMessage[] = (rawMessages ?? []).map((message: ChatMessageRow) => {
+        const personalProfile = personalMap.get(message.sender_user_id);
+        const businessProfile = businessMap.get(message.sender_user_id);
+
+        const senderName =
+          businessProfile?.business_name ??
+          personalProfile?.full_name ??
+          'Unknown user';
+
+        const senderAvatar =
+          businessProfile?.logo_url ??
+          personalProfile?.photo_url ??
+          null;
+
+        return {
+          id: message.message_id,
+          senderUserId: message.sender_user_id,
+          senderName,
+          senderAvatar,
+          isOrganizer: currentEvent.organizer_user_id === message.sender_user_id,
+          isCurrentUser: user?.id === message.sender_user_id,
+          text: message.message_text ?? '',
+          sentAt: message.sent_at,
+          isDeleted: message.is_deleted,
+        };
+      });
+
+      setMessages(hydrated);
+    },
+    [user?.id]
+  );
+
+  const loadChatData = useCallback(async () => {
+    if (!validEventId) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const { data: eventData, error: eventError } = await supabase
+        .from('events')
+        .select('event_id, organizer_user_id, title')
+        .eq('event_id', eventId)
+        .single();
+
+      if (eventError) throw eventError;
+      setEvent(eventData);
+
+      const { data: chatData, error: chatError } = await supabase
+        .from('event_chats')
+        .select('chat_id, event_id')
+        .eq('event_id', eventId)
+        .single();
+
+      if (chatError) throw chatError;
+      setChat(chatData);
+
+      await loadMessages(chatData.chat_id, eventData);
+    } catch (error) {
+      console.error(error);
+      Alert.alert(
+        'Error',
+        error instanceof Error ? error.message : 'Failed to load chat'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [eventId, loadMessages, validEventId]);
 
   useEffect(() => {
-    setMessages(getChatMessages(event?.id ?? 'jazz-night'));
-  }, [event?.id]);
+    loadChatData();
+  }, [loadChatData]);
 
-  if (!event) {
+  useEffect(() => {
+    if (!chat?.chat_id || !event) return;
+
+    const channel = supabase
+      .channel(`chat-${chat.chat_id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'chat_messages',
+          filter: `chat_id=eq.${chat.chat_id}`,
+        },
+        async () => {
+          try {
+            await loadMessages(chat.chat_id, event);
+          } catch (error) {
+            console.error(error);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [chat?.chat_id, event, loadMessages]);
+
+  const resolveSenderName = useCallback(async () => {
+    if (!user) throw new Error('You must be logged in.');
+
+    const { data: personalProfile } = await supabase
+      .from('personal_profiles')
+      .select('full_name')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (personalProfile?.full_name) return personalProfile.full_name;
+
+    const { data: businessProfile } = await supabase
+      .from('business_profiles')
+      .select('business_name')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (businessProfile?.business_name) return businessProfile.business_name;
+
+    return user.email ?? 'Unknown user';
+  }, [user]);
+
+  const handleSend = async () => {
+  if (!user) {
+    Alert.alert('Error', 'You must be logged in to send messages.');
+    return;
+  }
+
+  if (!chat || !event) {
+    Alert.alert('Error', 'Chat is not ready yet.');
+    return;
+  }
+
+  const trimmed = draft.trim();
+  if (!trimmed) return;
+
+  try {
+    setSending(true);
+
+    const { error } = await supabase.from('chat_messages').insert({
+      chat_id: chat.chat_id,
+      sender_user_id: user.id,
+      message_text: trimmed,
+    });
+
+    if (error) throw error;
+
+    setDraft('');
+    await loadMessages(chat.chat_id, event);
+  } catch (error) {
+    console.error(error);
+    Alert.alert(
+      'Error',
+      error instanceof Error ? error.message : 'Failed to send message'
+    );
+  } finally {
+    setSending(false);
+  }
+};
+
+  const handleMessageActions = (message: DisplayMessage) => {
+    const canDelete = user?.id === message.senderUserId;
+
+    const buttons: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Report',
+        onPress: async () => {
+          if (!user) return;
+
+          try {
+            const { error } = await supabase.from('message_reports').insert({
+              message_id: message.id,
+              reporter_user_id: user.id,
+              reason: 'Reported from chat UI',
+              status: 'pending',
+            });
+
+            if (error) throw error;
+
+            Alert.alert('Reported', 'The message was sent for moderation review.');
+          } catch (error) {
+            Alert.alert(
+              'Error',
+              error instanceof Error ? error.message : 'Failed to report message'
+            );
+          }
+        },
+      },
+    ];
+
+    if (canDelete) {
+      buttons.splice(1, 0, {
+        text: 'Delete for Yourself',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const { error } = await supabase
+              .from('chat_messages')
+              .update({
+                is_deleted: true,
+                message_text: 'This message was deleted',
+              })
+              .eq('message_id', message.id);
+
+            if (error) throw error;
+          } catch (error) {
+            Alert.alert(
+              'Error',
+              error instanceof Error ? error.message : 'Failed to delete message'
+            );
+          }
+        },
+      });
+    }
+
+    Alert.alert(
+      'Message Actions',
+      message.isDeleted ? 'This message was deleted' : message.text,
+      buttons
+    );
+  };
+
+  if (!validEventId) {
     return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <ScreenHeader title="Event Chat" onBack={() => router.back()} />
         <View style={styles.emptyState}>
-          <Ionicons name="chatbubbles-outline" size={32} color={colors.textMuted} />
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>Chat unavailable</Text>
-          <Text style={[styles.emptyText, { color: colors.textMuted }]}>The selected event chat could not be found.</Text>
+          <Ionicons name="chatbubbles-outline" size={32} color={theme.colors.textMuted} />
+          <Text style={styles.emptyTitle}>Chat unavailable</Text>
+          <Text style={styles.emptyText}>Invalid event id.</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  const refreshMessages = () => setMessages(getChatMessages(event.id));
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+        <ScreenHeader title="Event Chat" onBack={() => router.back()} />
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyText}>Loading chat...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
-  const handleMessageActions = (message: ChatMessage) => {
-    Alert.alert('Message Actions', message.isDeleted ? 'This message was deleted' : message.text, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete for Yourself',
-        style: 'destructive',
-        onPress: () => {
-          markMessageDeleted(event.id, message.id);
-          refreshMessages();
-        },
-      },
-      {
-        text: 'Report',
-        onPress: () => {
-          reportMessage(event.id, message.id);
-          refreshMessages();
-          Alert.alert('Reported', 'The message was sent for moderation review.');
-        },
-      },
-    ]);
-  };
-
-  const handleSend = () => {
-    const trimmed = draft.trim();
-    if (!trimmed && !attachmentLabel) return;
-
-    const sent = sendChatMessage({
-      eventId: event.id,
-      text: trimmed || 'Attachment',
-      attachmentLabel,
-    });
-    setMessages((current) => [...current, sent]);
-    setDraft('');
-    setAttachmentLabel(undefined);
-
-    setTimeout(() => {
-      const reply = receiveMockReply(event.id);
-      setMessages((current) => [...current, reply]);
-    }, 700);
-  };
-
-  const handleAttachment = () => {
-    setAttachmentLabel('Attachment selected');
-    Alert.alert('Attachment', 'Attachment selected.');
-  };
+  if (!event || !chat) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+        <ScreenHeader title="Event Chat" onBack={() => router.back()} />
+        <View style={styles.emptyState}>
+          <Ionicons name="chatbubbles-outline" size={32} color={theme.colors.textMuted} />
+          <Text style={styles.emptyTitle}>Chat unavailable</Text>
+          <Text style={styles.emptyText}>The selected event chat could not be found.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <ScreenHeader title="Event Chat" onBack={() => router.back()} />
 
       <KeyboardAvoidingView
@@ -114,15 +390,15 @@ export default function Chat() {
         style={styles.flex}
       >
         <View style={styles.chatHeader}>
-          <Text style={[styles.eventTitle, { color: colors.text }]} numberOfLines={1}>
+          <Text style={styles.eventTitle} numberOfLines={1}>
             {event.title}
           </Text>
-          <Text style={[styles.onlineText, { color: colors.success }]}>{Math.max(event.participantNames.length, 12)} members online</Text>
+          <Text style={styles.onlineText}>Live event chat</Text>
         </View>
 
         <ScrollView contentContainerStyle={styles.messages} showsVerticalScrollIndicator={false}>
-          <View style={[styles.dateSeparator, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.dateSeparatorText, { color: colors.textMuted }]}>TODAY</Text>
+          <View style={styles.dateSeparator}>
+            <Text style={styles.dateSeparatorText}>TODAY</Text>
           </View>
 
           {messages.map((message) => (
@@ -134,46 +410,34 @@ export default function Chat() {
           ))}
         </ScrollView>
 
-        {attachmentLabel ? (
-          <View style={[styles.attachmentChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Ionicons name="attach-outline" size={16} color={colors.primary} />
-            <Text style={[styles.attachmentText, { color: colors.primary }]}>{attachmentLabel}</Text>
-            <Pressable onPress={() => setAttachmentLabel(undefined)} hitSlop={8}>
-              <Ionicons name="close" size={16} color={colors.textMuted} />
-            </Pressable>
-          </View>
-        ) : null}
-
-        <View style={[styles.inputBar, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
+        <View style={styles.inputBar}>
           <Pressable
-            onPress={handleAttachment}
+            onPress={() => setDraft((value) => `${value}🙂 `)}
             accessibilityRole="button"
-            accessibilityLabel="Add attachment"
+            accessibilityLabel="Insert emoji"
             style={({ pressed }) => [styles.inputIconButton, pressed && styles.pressed]}
           >
-            <Ionicons name="attach-outline" size={22} color={colors.primary} />
+            <Ionicons name="happy-outline" size={22} color={theme.colors.primary} />
           </Pressable>
+
           <View style={styles.inputWrap}>
             <Input
               value={draft}
               onChangeText={setDraft}
               placeholder="Type a message..."
-              variant="pill"
             />
           </View>
-          <Pressable
-            onPress={() => setDraft((value) => `${value}:) `)}
-            accessibilityRole="button"
-            accessibilityLabel="Insert emoji"
-            style={({ pressed }) => [styles.inputIconButton, pressed && styles.pressed]}
-          >
-            <Ionicons name="happy-outline" size={22} color={colors.primary} />
-          </Pressable>
+
           <Pressable
             onPress={handleSend}
+            disabled={sending}
             accessibilityRole="button"
             accessibilityLabel="Send message"
-            style={({ pressed }) => [styles.sendButton, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.sendButton,
+              pressed && styles.pressed,
+              sending && styles.disabled,
+            ]}
           >
             <Ionicons name="send" size={18} color="#FFFFFF" />
           </Pressable>
@@ -187,7 +451,7 @@ function MessageBubble({
   message,
   onLongPress,
 }: {
-  message: ChatMessage;
+  message: DisplayMessage;
   onLongPress: () => void;
 }) {
   const outgoing = message.isCurrentUser;
@@ -201,7 +465,18 @@ function MessageBubble({
         outgoing ? styles.messageRowOutgoing : styles.messageRowIncoming,
       ]}
     >
-      {!outgoing ? <Image source={{ uri: message.senderAvatar }} style={styles.messageAvatar} /> : null}
+      {!outgoing ? (
+        message.senderAvatar ? (
+          <Image source={{ uri: message.senderAvatar }} style={styles.messageAvatar} />
+        ) : (
+          <View style={[styles.messageAvatar, styles.messageAvatarFallback]}>
+            <Text style={styles.messageAvatarFallbackText}>
+              {message.senderName.slice(0, 1).toUpperCase()}
+            </Text>
+          </View>
+        )
+      ) : null}
+
       <View style={[styles.bubble, outgoing ? styles.outgoingBubble : styles.incomingBubble]}>
         {!outgoing ? (
           <View style={styles.senderRow}>
@@ -217,28 +492,16 @@ function MessageBubble({
         {message.isDeleted ? (
           <Text style={styles.deletedText}>This message was deleted</Text>
         ) : (
-          <>
-            {message.attachmentLabel ? (
-              <View style={styles.messageAttachment}>
-                <Ionicons
-                  name="document-attach-outline"
-                  size={16}
-                  color={outgoing ? '#FFFFFF' : theme.colors.primary}
-                />
-                <Text style={[styles.messageAttachmentText, outgoing && styles.outgoingText]}>
-                  {message.attachmentLabel}
-                </Text>
-              </View>
-            ) : null}
-            <Text style={[styles.messageText, outgoing && styles.outgoingText]}>{message.text}</Text>
-          </>
+          <Text style={[styles.messageText, outgoing && styles.outgoingText]}>
+            {message.text}
+          </Text>
         )}
+
         <Text style={[styles.messageTime, outgoing && styles.outgoingTime]}>
-          {new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(
-            new Date(message.sentAt),
-          )}
-          {outgoing ? ' - Sent' : ''}
-          {message.isReported ? ' - Reported' : ''}
+          {new Intl.DateTimeFormat('en', {
+            hour: 'numeric',
+            minute: '2-digit',
+          }).format(new Date(message.sentAt))}
         </Text>
       </View>
     </Pressable>
@@ -280,6 +543,7 @@ const styles = StyleSheet.create({
   dateSeparator: {
     alignSelf: 'center',
     borderRadius: theme.radius.full,
+    backgroundColor: '#E5E7EB',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: 5,
   },
@@ -305,6 +569,16 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     backgroundColor: theme.colors.border,
   },
+  messageAvatarFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E5E7EB',
+  },
+  messageAvatarFallbackText: {
+    color: theme.colors.text,
+    fontSize: theme.fontSize.sm,
+    fontWeight: '800',
+  },
   bubble: {
     borderRadius: 18,
     paddingHorizontal: theme.spacing.md,
@@ -312,7 +586,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   incomingBubble: {
-    backgroundColor: theme.colors.background,
+    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 4,
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -333,12 +607,12 @@ const styles = StyleSheet.create({
   },
   organizerBadge: {
     borderRadius: theme.radius.full,
-    backgroundColor: '#12331F',
+    backgroundColor: '#DCFCE7',
     paddingHorizontal: theme.spacing.xs,
     paddingVertical: 2,
   },
   organizerBadgeText: {
-    color: '#86EFAC',
+    color: '#15803D',
     fontSize: 10,
     fontWeight: '900',
   },
@@ -363,32 +637,6 @@ const styles = StyleSheet.create({
   outgoingTime: {
     color: 'rgba(255,255,255,0.8)',
   },
-  messageAttachment: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.xs,
-  },
-  messageAttachmentText: {
-    color: theme.colors.primary,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '800',
-  },
-  attachmentChip: {
-    marginHorizontal: theme.spacing.lg,
-    marginBottom: theme.spacing.sm,
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.xs,
-    borderRadius: theme.radius.full,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-  },
-  attachmentText: {
-    color: theme.colors.primary,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '800',
-  },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -398,6 +646,7 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.lg,
     borderTopWidth: 1,
     borderTopColor: theme.colors.border,
+    backgroundColor: '#FFFFFF',
   },
   inputWrap: {
     flex: 1,
@@ -408,6 +657,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#EEF0FF',
   },
   sendButton: {
     width: 42,
@@ -436,5 +686,8 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.75,
+  },
+  disabled: {
+    opacity: 0.5,
   },
 });

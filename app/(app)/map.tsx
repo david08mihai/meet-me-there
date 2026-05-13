@@ -13,27 +13,86 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import {
-  CATEGORY_TAGS,
-  DATE_FILTER_OPTIONS,
-  DateFilter,
-  EventItem,
-  TIME_FILTER_OPTIONS,
-  TimeFilter,
-  getVisibleEvents,
-} from '../../src/lib/mockEvents';
-import { EventCard, TagPills } from '../../src/ui/EventCard';
+import { supabase } from '../../src/lib/supabase';
 import { Select } from '../../src/ui/Select';
 import { theme, useThemeColors } from '../../src/ui/theme';
 
 type ViewMode = 'map' | 'list';
 type MapRegion = 'romania' | 'world';
+type DateFilter = 'all' | 'today' | 'this_week' | 'this_month';
+type TimeFilter = 'all' | 'morning' | 'afternoon' | 'evening';
+
+type EventRow = {
+  event_id: number;
+  title: string;
+  description: string;
+  cover_image_url: string | null;
+  start_datetime: string;
+  end_datetime: string;
+  location_text: string;
+  latitude: number | null;
+  longitude: number | null;
+  max_participants: number;
+  pricing_model: string;
+  ticket_price: number | null;
+  status: string;
+};
+
+type EventTagJoinRow = {
+  event_id: number;
+  tag_id: number;
+};
+
+type TagRow = {
+  tag_id: number;
+  name: string;
+};
+
+type BookingRow = {
+  event_id: number;
+  booking_status: string;
+};
+
+type EventItem = {
+  id: number;
+  title: string;
+  description: string;
+  imageUrl: string | null;
+  startsAt: string;
+  venue: string;
+  latitude: number | null;
+  longitude: number | null;
+  capacity: number;
+  attendees: number;
+  paymentModel: 'Free' | 'Paid';
+  price: number;
+  tags: string[];
+  isPopular: boolean;
+  coordinateLabel: string;
+};
 
 const TILE_SIZE = 256;
 const MIN_ZOOM = 2;
 const MAX_ZOOM = 14;
 
-const REGIONS: Record<MapRegion, { label: string; latitude: number; longitude: number; zoom: number }> = {
+const DATE_FILTER_OPTIONS = [
+  { value: 'all', label: 'All dates' },
+  { value: 'today', label: 'Today' },
+  { value: 'this_week', label: 'This week' },
+  { value: 'this_month', label: 'This month' },
+] as const;
+
+const TIME_FILTER_OPTIONS = [
+  { value: 'all', label: 'All day' },
+  { value: 'morning', label: 'Morning' },
+  { value: 'afternoon', label: 'Afternoon' },
+  { value: 'evening', label: 'Evening' },
+] as const;
+
+const REGIONS: Record<
+  MapRegion,
+  { label: string; latitude: number; longitude: number; zoom: number }
+> = {
   romania: { label: 'Romania', latitude: 45.9432, longitude: 24.9668, zoom: 6 },
   world: { label: 'World', latitude: 20, longitude: 0, zoom: 2 },
 };
@@ -74,41 +133,216 @@ function tileUrl(zoom: number, x: number, y: number) {
   return `https://tile.openstreetmap.org/${zoom}/${wrappedX}/${clampedY}.png`;
 }
 
+function formatCompactDate(startsAt: string) {
+  return new Intl.DateTimeFormat('en', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(startsAt));
+}
+
+function isDateMatch(date: Date, filter: DateFilter) {
+  if (filter === 'all') return true;
+
+  const now = new Date();
+
+  if (filter === 'today') {
+    return date.toDateString() === now.toDateString();
+  }
+
+  if (filter === 'this_week') {
+    const start = new Date(now);
+    const day = start.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    start.setDate(now.getDate() + diff);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(start);
+    end.setDate(start.getDate() + 7);
+
+    return date >= start && date < end;
+  }
+
+  if (filter === 'this_month') {
+    return (
+      date.getMonth() === now.getMonth() &&
+      date.getFullYear() === now.getFullYear()
+    );
+  }
+
+  return true;
+}
+
+function isTimeMatch(date: Date, filter: TimeFilter) {
+  if (filter === 'all') return true;
+
+  const hour = date.getHours();
+
+  if (filter === 'morning') return hour >= 6 && hour < 12;
+  if (filter === 'afternoon') return hour >= 12 && hour < 18;
+  if (filter === 'evening') return hour >= 18 || hour < 1;
+
+  return true;
+}
+
 export default function ExploreMap() {
   const router = useRouter();
   const colors = useThemeColors();
-  const themeMode = useThemeColors().background === '#0F172A' ? 'dark' : 'light';
+
   const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [region, setRegion] = useState<MapRegion>('romania');
   const [dateFilter, setDateFilter] = useState<DateFilter>('all');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  const [, setRefreshKey] = useState(0);
+  const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
+
+  const [events, setEvents] = useState<EventItem[]>([]);
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadEvents = useCallback(async () => {
+    try {
+      setLoading(true);
+
+      const [
+        eventsResult,
+        tagsResult,
+        eventTagsResult,
+        bookingsResult,
+      ] = await Promise.all([
+        supabase
+          .from('events')
+          .select(
+            `
+            event_id,
+            title,
+            description,
+            cover_image_url,
+            start_datetime,
+            end_datetime,
+            location_text,
+            latitude,
+            longitude,
+            max_participants,
+            pricing_model,
+            ticket_price,
+            status
+          `
+          )
+          .eq('status', 'published')
+          .order('start_datetime', { ascending: true }),
+
+        supabase
+          .from('tags')
+          .select('tag_id, name')
+          .order('name', { ascending: true }),
+
+        supabase
+          .from('event_tags')
+          .select('event_id, tag_id'),
+
+        supabase
+          .from('bookings')
+          .select('event_id, booking_status')
+          .in('booking_status', ['pending', 'confirmed']),
+      ]);
+
+      if (eventsResult.error) throw eventsResult.error;
+      if (tagsResult.error) throw tagsResult.error;
+      if (eventTagsResult.error) throw eventTagsResult.error;
+      if (bookingsResult.error) throw bookingsResult.error;
+
+      const eventRows = (eventsResult.data ?? []) as EventRow[];
+      const tagRows = (tagsResult.data ?? []) as TagRow[];
+      const eventTagRows = (eventTagsResult.data ?? []) as EventTagJoinRow[];
+      const bookingRows = (bookingsResult.data ?? []) as BookingRow[];
+
+      const tagMap = new Map(tagRows.map((tag) => [tag.tag_id, tag.name]));
+
+      const tagsByEventId = new Map<number, string[]>();
+      for (const row of eventTagRows) {
+        const tagName = tagMap.get(row.tag_id);
+        if (!tagName) continue;
+        tagsByEventId.set(row.event_id, [...(tagsByEventId.get(row.event_id) ?? []), tagName]);
+      }
+
+      const attendeesByEventId = new Map<number, number>();
+      for (const booking of bookingRows) {
+        attendeesByEventId.set(
+          booking.event_id,
+          (attendeesByEventId.get(booking.event_id) ?? 0) + 1
+        );
+      }
+
+      const mapped: EventItem[] = eventRows.map((event) => {
+        const attendees = attendeesByEventId.get(event.event_id) ?? 0;
+        return {
+          id: event.event_id,
+          title: event.title,
+          description: event.description,
+          imageUrl: event.cover_image_url,
+          startsAt: event.start_datetime,
+          venue: event.location_text,
+          latitude: event.latitude,
+          longitude: event.longitude,
+          capacity: event.max_participants,
+          attendees,
+          paymentModel: event.pricing_model === 'paid' ? 'Paid' : 'Free',
+          price: event.ticket_price ?? 0,
+          tags: tagsByEventId.get(event.event_id) ?? [],
+          isPopular: attendees >= 5,
+          coordinateLabel: event.location_text,
+        };
+      });
+
+      setEvents(mapped);
+      setAvailableTags(tagRows.map((tag) => tag.name));
+    } catch (error) {
+      console.error(error);
+      setEvents([]);
+      setAvailableTags([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      setRefreshKey((value) => value + 1);
-    }, []),
+      loadEvents();
+    }, [loadEvents])
   );
 
-  const visibleEvents = getVisibleEvents({
-    date: dateFilter,
-    time: timeFilter,
-    tags: selectedTags,
-  });
+  const visibleEvents = useMemo(() => {
+    return events.filter((event) => {
+      const startsAt = new Date(event.startsAt);
 
-  const selectedEvent = selectedEventId
-    ? visibleEvents.find((event) => event.id === selectedEventId) ?? null
-    : null;
+      const dateOk = isDateMatch(startsAt, dateFilter);
+      const timeOk = isTimeMatch(startsAt, timeFilter);
+      const tagsOk =
+        selectedTags.length === 0 ||
+        selectedTags.every((tag) => event.tags.includes(tag));
+
+      return dateOk && timeOk && tagsOk;
+    });
+  }, [dateFilter, events, selectedTags, timeFilter]);
+
+  const selectedEvent =
+    selectedEventId !== null
+      ? visibleEvents.find((event) => event.id === selectedEventId) ?? null
+      : null;
 
   const openEvent = (event: EventItem) => {
-    router.push({ pathname: '/events/[id]', params: { id: event.id } });
+    router.push({
+      pathname: '/events/[id]',
+      params: { id: String(event.id) },
+    });
   };
 
   const toggleTag = (tag: string) => {
     setSelectedTags((current) =>
-      current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag],
+      current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag]
     );
     setSelectedEventId(null);
   };
@@ -153,6 +387,7 @@ export default function ExploreMap() {
               title="Date"
             />
           </View>
+
           <View style={styles.filterField}>
             <Select<TimeFilter>
               value={timeFilter}
@@ -171,8 +406,9 @@ export default function ExploreMap() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.tagScroller}
         >
-          {CATEGORY_TAGS.map((tag) => {
+          {availableTags.map((tag) => {
             const active = selectedTags.includes(tag);
+
             return (
               <Pressable
                 key={tag}
@@ -181,12 +417,21 @@ export default function ExploreMap() {
                 accessibilityState={{ selected: active }}
                 style={({ pressed }) => [
                   styles.filterTag,
-                  { backgroundColor: active ? colors.primary : colors.surface, borderColor: colors.border },
+                  {
+                    backgroundColor: active ? colors.primary : colors.surface,
+                    borderColor: colors.border,
+                  },
                   active && styles.filterTagActive,
                   pressed && styles.pressed,
                 ]}
               >
-                <Text style={[styles.filterTagText, { color: active ? '#FFFFFF' : colors.text }, active && styles.filterTagTextActive]}>
+                <Text
+                  style={[
+                    styles.filterTagText,
+                    { color: active ? '#FFFFFF' : colors.text },
+                    active && styles.filterTagTextActive,
+                  ]}
+                >
                   {tag}
                 </Text>
               </Pressable>
@@ -205,9 +450,10 @@ export default function ExploreMap() {
           onOpen={openEvent}
           onPopular={handlePopular}
           onRegionChange={setRegion}
+          loading={loading}
         />
       ) : (
-        <ListView events={visibleEvents} onOpen={openEvent} />
+        <ListView events={visibleEvents} onOpen={openEvent} loading={loading} />
       )}
     </SafeAreaView>
   );
@@ -222,6 +468,7 @@ function MapView({
   onOpen,
   onPopular,
   onRegionChange,
+  loading,
 }: {
   events: EventItem[];
   region: MapRegion;
@@ -231,19 +478,20 @@ function MapView({
   onOpen: (event: EventItem) => void;
   onPopular: () => void;
   onRegionChange: (region: MapRegion) => void;
+  loading: boolean;
 }) {
   const colors = useThemeColors();
   const isDark = colors.background === '#0F172A';
+
   const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
   const [zoom, setZoom] = useState(REGIONS[region].zoom);
   const [, forceUpdate] = useState(0);
 
-  // Store center in a ref so gesture handler always reads/writes the true live value
-  // without going through React's async state queue.
   const centerRef = useRef({
     latitude: REGIONS[region].latitude,
     longitude: REGIONS[region].longitude,
   });
+
   const panStartRef = useRef<{ lastDx: number; lastDy: number } | null>(null);
   const zoomRef = useRef(zoom);
 
@@ -298,7 +546,7 @@ function MapView({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: (_event, gestureState) =>
           Math.abs(gestureState.dx) > 3 || Math.abs(gestureState.dy) > 3,
-        onPanResponderGrant: (_event) => {
+        onPanResponderGrant: () => {
           panStartRef.current = { lastDx: 0, lastDy: 0 };
           pinchRef.current = null;
         },
@@ -307,7 +555,6 @@ function MapView({
 
           const touches = event.nativeEvent.touches;
 
-          // ── Two-finger pinch-to-zoom ──────────────────────────────────
           if (touches && touches.length === 2) {
             const dx = touches[0].pageX - touches[1].pageX;
             const dy = touches[0].pageY - touches[1].pageY;
@@ -316,21 +563,20 @@ function MapView({
             if (pinchRef.current !== null) {
               const ratio = dist / pinchRef.current.lastDist;
               const z = zoomRef.current;
-              // Only step zoom when the scale change is large enough
               const nextZoom = clamp(Math.round(z + Math.log2(ratio) * 2), MIN_ZOOM, MAX_ZOOM);
               if (nextZoom !== z) {
                 zoomRef.current = nextZoom;
                 setZoom(nextZoom);
               }
             }
+
             pinchRef.current = { lastDist: dist };
-            // Reset pan deltas so single-finger resume doesn't jump
             panStartRef.current = { lastDx: gestureState.dx, lastDy: gestureState.dy };
             return;
           }
 
-          // ── Single-finger pan ─────────────────────────────────────────
           pinchRef.current = null;
+
           const deltaX = gestureState.dx - panStartRef.current.lastDx;
           const deltaY = gestureState.dy - panStartRef.current.lastDy;
           panStartRef.current.lastDx = gestureState.dx;
@@ -357,8 +603,7 @@ function MapView({
           pinchRef.current = null;
         },
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    []
   );
 
   const handleLayout = (event: LayoutChangeEvent) => {
@@ -385,9 +630,14 @@ function MapView({
   };
 
   const markerPosition = (event: EventItem) => {
+    if (event.latitude === null || event.longitude === null) {
+      return { left: 0, top: 0, visible: false };
+    }
+
     const left = mapWidth / 2 + (lonToTileX(event.longitude, zoom) - centerTileX) * TILE_SIZE;
     const top = mapHeight / 2 + (latToTileY(event.latitude, zoom) - centerTileY) * TILE_SIZE;
     const visible = left > -170 && left < mapWidth + 70 && top > -70 && top < mapHeight + 80;
+
     return { left, top, visible };
   };
 
@@ -397,7 +647,16 @@ function MapView({
 
   return (
     <View style={styles.mapWrap}>
-    <View style={[styles.mapCanvas, { backgroundColor: isDark ? '#0F172A' : '#BFD9DF', borderColor: colors.border }]} onLayout={handleLayout}>
+      <View
+        style={[
+          styles.mapCanvas,
+          {
+            backgroundColor: isDark ? '#0F172A' : '#BFD9DF',
+            borderColor: colors.border,
+          },
+        ]}
+        onLayout={handleLayout}
+      >
         {tiles.map((tile) => (
           <View
             key={tile.key}
@@ -414,12 +673,29 @@ function MapView({
           </View>
         ))}
 
-        <View style={[styles.mapSoftOverlay, { backgroundColor: isDark ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.04)' }]} pointerEvents="none" />
+        <View
+          style={[
+            styles.mapSoftOverlay,
+            {
+              backgroundColor: isDark
+                ? 'rgba(15,23,42,0.12)'
+                : 'rgba(255,255,255,0.04)',
+            },
+          ]}
+          pointerEvents="none"
+        />
+
         <View style={[styles.dragLayer, { touchAction: 'none' } as any]} {...panResponder.panHandlers} />
 
-        <View style={[styles.regionControl, { backgroundColor: colors.background, borderColor: colors.border }]}>
+        <View
+          style={[
+            styles.regionControl,
+            { backgroundColor: colors.background, borderColor: colors.border },
+          ]}
+        >
           {(['romania', 'world'] as const).map((option) => {
             const active = option === region;
+
             return (
               <Pressable
                 key={option}
@@ -454,9 +730,11 @@ function MapView({
           >
             <Ionicons name="add" size={22} color={colors.primary} />
           </Pressable>
+
           <View style={styles.zoomBadge}>
             <Text style={styles.zoomText}>{zoom}</Text>
           </View>
+
           <Pressable
             onPress={() => handleZoom(-1)}
             accessibilityRole="button"
@@ -470,11 +748,16 @@ function MapView({
           >
             <Ionicons name="remove" size={22} color={colors.primary} />
           </Pressable>
+
           <Pressable
             onPress={handleRecenter}
             accessibilityRole="button"
             accessibilityLabel="Recenter map"
-            style={({ pressed }) => [styles.mapControlButton, { backgroundColor: colors.background, borderColor: colors.border }, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.mapControlButton,
+              { backgroundColor: colors.background, borderColor: colors.border },
+              pressed && styles.pressed,
+            ]}
           >
             <Ionicons name="locate-outline" size={20} color={colors.primary} />
           </Pressable>
@@ -489,67 +772,92 @@ function MapView({
           <Text style={styles.popularButtonText}>Popular</Text>
         </Pressable>
 
-        <View style={[styles.mapAttribution, { backgroundColor: colors.background, borderColor: colors.border }]}>
+        <View
+          style={[
+            styles.mapAttribution,
+            { backgroundColor: colors.background, borderColor: colors.border },
+          ]}
+        >
           <Text style={styles.mapAttributionText}>OpenStreetMap</Text>
         </View>
 
-        {visibleMarkers.map(({ event, position }) => {
-          return (
-            <Pressable
-              key={event.id}
-              onPress={() => onSelect(event)}
-              accessibilityRole="button"
-              accessibilityLabel={`Select ${event.title}`}
-              style={({ pressed }) => [
-                styles.marker,
-                {
-                  left: position.left,
-                  top: position.top,
-                  backgroundColor: selectedEvent?.id === event.id ? colors.primary : colors.background,
-                  borderColor: selectedEvent?.id === event.id ? colors.background : colors.primary,
-                },
-                selectedEvent?.id === event.id && styles.markerActive,
-                pressed && styles.pressed,
+        {visibleMarkers.map(({ event, position }) => (
+          <Pressable
+            key={event.id}
+            onPress={() => onSelect(event)}
+            accessibilityRole="button"
+            accessibilityLabel={`Select ${event.title}`}
+            style={({ pressed }) => [
+              styles.marker,
+              {
+                left: position.left,
+                top: position.top,
+                backgroundColor:
+                  selectedEvent?.id === event.id ? colors.primary : colors.background,
+                borderColor:
+                  selectedEvent?.id === event.id ? colors.background : colors.primary,
+              },
+              selectedEvent?.id === event.id && styles.markerActive,
+              pressed && styles.pressed,
+            ]}
+          >
+            <View
+              style={[
+                styles.markerDot,
+                selectedEvent?.id === event.id && styles.markerDotActive,
               ]}
             >
-              <View
-                style={[
-                  styles.markerDot,
-                  selectedEvent?.id === event.id && styles.markerDotActive,
-                ]}
-              >
-                <Ionicons
-                  name={event.paymentModel === 'Paid' ? 'ticket-outline' : 'sparkles-outline'}
-                  size={13}
-                  color={selectedEvent?.id === event.id ? theme.colors.primary : '#FFFFFF'}
-                />
-              </View>
-              <Text
-                style={[
-                  styles.markerText,
-                  selectedEvent?.id === event.id && styles.markerTextActive,
-                ]}
-                numberOfLines={1}
-              >
-                {event.title.replace(' in the Garden', '')}
-              </Text>
-            </Pressable>
-          );
-        })}
+              <Ionicons
+                name={event.paymentModel === 'Paid' ? 'ticket-outline' : 'sparkles-outline'}
+                size={13}
+                color={selectedEvent?.id === event.id ? theme.colors.primary : '#FFFFFF'}
+              />
+            </View>
 
-        {events.length === 0 ? (
+            <Text
+              style={[
+                styles.markerText,
+                selectedEvent?.id === event.id && styles.markerTextActive,
+              ]}
+              numberOfLines={1}
+            >
+              {event.title}
+            </Text>
+          </Pressable>
+        ))}
+
+        {loading ? (
+          <View style={styles.emptyMap}>
+            <Text style={[styles.emptyText, { color: colors.textMuted }]}>Loading events...</Text>
+          </View>
+        ) : events.length === 0 ? (
           <View style={styles.emptyMap}>
             <Ionicons name="search-outline" size={24} color={colors.textMuted} />
             <Text style={[styles.emptyTitle, { color: colors.text }]}>No events found</Text>
-            <Text style={[styles.emptyText, { color: colors.textMuted }]}>Try another date, time, or tag.</Text>
+            <Text style={[styles.emptyText, { color: colors.textMuted }]}>
+              Try another date, time, or tag.
+            </Text>
+          </View>
+        ) : visibleMarkers.length === 0 ? (
+          <View style={styles.emptyMap}>
+            <Ionicons name="location-outline" size={24} color={colors.textMuted} />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>No map coordinates</Text>
+            <Text style={[styles.emptyText, { color: colors.textMuted }]}>
+              These events exist, but they do not have latitude and longitude yet.
+            </Text>
           </View>
         ) : null}
       </View>
 
       {selectedEvent ? (
-          <View style={[styles.previewCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+        <View
+          style={[
+            styles.previewCard,
+            { backgroundColor: colors.background, borderColor: colors.border },
+          ]}
+        >
           <View style={styles.previewHeader}>
-            <TagPills tags={selectedEvent.tags} limit={3} />
+            <TagPills tags={selectedEvent.tags} />
             <Pressable
               onPress={onClose}
               hitSlop={10}
@@ -559,9 +867,11 @@ function MapView({
               <Ionicons name="close" size={22} color={colors.textMuted} />
             </Pressable>
           </View>
-          <EventCard event={selectedEvent} variant="compact" onPress={() => onOpen(selectedEvent)} />
+
+          <EventPreviewCard event={selectedEvent} onPress={() => onOpen(selectedEvent)} />
+
           <View style={styles.locationReference}>
-              <Ionicons name="navigate-outline" size={16} color={colors.primary} />
+            <Ionicons name="navigate-outline" size={16} color={colors.primary} />
             <Text style={styles.locationReferenceText}>{selectedEvent.coordinateLabel}</Text>
           </View>
         </View>
@@ -573,15 +883,19 @@ function MapView({
 function ListView({
   events,
   onOpen,
+  loading,
 }: {
   events: EventItem[];
   onOpen: (event: EventItem) => void;
+  loading: boolean;
 }) {
-  const colors = useThemeColors();
-
   return (
     <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
-      {events.length === 0 ? (
+      {loading ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyText}>Loading events...</Text>
+        </View>
+      ) : events.length === 0 ? (
         <View style={styles.emptyState}>
           <Ionicons name="calendar-clear-outline" size={28} color={theme.colors.textMuted} />
           <Text style={styles.emptyTitle}>No events found</Text>
@@ -589,10 +903,80 @@ function ListView({
         </View>
       ) : (
         events.map((event) => (
-          <EventCard key={event.id} event={event} onPress={() => onOpen(event)} />
+          <EventPreviewCard key={event.id} event={event} onPress={() => onOpen(event)} />
         ))
       )}
     </ScrollView>
+  );
+}
+
+function EventPreviewCard({
+  event,
+  onPress,
+}: {
+  event: EventItem;
+  onPress: () => void;
+}) {
+  const colors = useThemeColors();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.card,
+        { backgroundColor: colors.surface, borderColor: colors.border },
+        pressed && styles.pressed,
+      ]}
+    >
+      {event.imageUrl ? (
+        <Image source={{ uri: event.imageUrl }} style={styles.cardImage} />
+      ) : (
+        <View style={[styles.cardImage, styles.cardImageFallback]}>
+          <Ionicons name="image-outline" size={28} color={colors.textMuted} />
+        </View>
+      )}
+
+      <View style={styles.cardBody}>
+        <TagPills tags={event.tags} />
+        <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>
+          {event.title}
+        </Text>
+        <Text style={[styles.cardDate, { color: colors.textMuted }]}>
+          {formatCompactDate(event.startsAt)}
+        </Text>
+        <Text style={[styles.cardVenue, { color: colors.primary }]} numberOfLines={1}>
+          {event.venue}
+        </Text>
+        <Text style={[styles.cardDescription, { color: colors.textMuted }]} numberOfLines={2}>
+          {event.description}
+        </Text>
+
+        <View style={styles.cardFooter}>
+          <Text style={[styles.cardMeta, { color: colors.textMuted }]}>
+            {event.attendees}/{event.capacity} going
+          </Text>
+          <Text style={[styles.cardMeta, { color: colors.textMuted }]}>
+            {event.paymentModel === 'Paid' ? `${event.price} RON` : 'Free'}
+          </Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+function TagPills({ tags }: { tags: string[] }) {
+  const colors = useThemeColors();
+
+  if (tags.length === 0) return null;
+
+  return (
+    <View style={styles.pillsWrap}>
+      {tags.slice(0, 3).map((tag) => (
+        <View key={tag} style={[styles.pill, { backgroundColor: '#EEF0FF' }]}>
+          <Text style={[styles.pillText, { color: colors.primary }]}>{tag}</Text>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -691,16 +1075,10 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.full,
     paddingHorizontal: theme.spacing.md,
   },
-  regionButtonActive: {
-    backgroundColor: theme.colors.primary,
-  },
   regionText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: '800',
-  },
-  regionTextActive: {
-    color: '#FFFFFF',
   },
   mapCanvas: {
     flex: 1,
@@ -922,5 +1300,62 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     textAlign: 'center',
+  },
+  card: {
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  cardImage: {
+    width: '100%',
+    height: 160,
+    backgroundColor: '#E5E7EB',
+  },
+  cardImageFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardBody: {
+    padding: theme.spacing.lg,
+    gap: theme.spacing.sm,
+  },
+  cardTitle: {
+    fontSize: theme.fontSize.lg,
+    fontWeight: '800',
+  },
+  cardDate: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: '700',
+  },
+  cardVenue: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: '700',
+  },
+  cardDescription: {
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: theme.spacing.md,
+  },
+  cardMeta: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: '700',
+  },
+  pillsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.xs,
+  },
+  pill: {
+    borderRadius: theme.radius.full,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 4,
+  },
+  pillText: {
+    fontSize: theme.fontSize.xs,
+    fontWeight: '800',
   },
 });

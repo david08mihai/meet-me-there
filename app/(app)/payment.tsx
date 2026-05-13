@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ReactNode, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -13,11 +13,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import {
-  formatEventSchedule,
-  getEventById,
-  joinEvent,
-} from '../../src/lib/mockEvents';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { supabase } from '../../src/lib/supabase';
 import { Input } from '../../src/ui/Input';
 import { ScreenHeader } from '../../src/ui/ScreenHeader';
 import { theme, useThemeColors } from '../../src/ui/theme';
@@ -25,12 +22,52 @@ import { theme, useThemeColors } from '../../src/ui/theme';
 type PaymentMethod = 'apple' | 'card';
 type PaymentErrors = Partial<Record<'cardNumber' | 'expiry' | 'cvv', string>>;
 
+type EventRow = {
+  event_id: number;
+  title: string;
+  start_datetime: string;
+  end_datetime: string;
+  location_text: string;
+  ticket_price: number | null;
+  pricing_model: string;
+};
+
+function formatEventSchedule(start: string, end: string, includeLocation = false, location?: string) {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+
+  const datePart = new Intl.DateTimeFormat('en', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(startDate);
+
+  const startTime = new Intl.DateTimeFormat('en', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(startDate);
+
+  const endTime = new Intl.DateTimeFormat('en', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(endDate);
+
+  const base = `${datePart} · ${startTime} - ${endTime}`;
+  return includeLocation && location ? `${base} · ${location}` : base;
+}
+
 export default function ReviewPurchase() {
   const router = useRouter();
   const colors = useThemeColors();
+  const { user } = useAuth();
+
   const params = useLocalSearchParams<{ eventId?: string }>();
-  const eventId = Array.isArray(params.eventId) ? params.eventId[0] : params.eventId;
-  const event = useMemo(() => getEventById(eventId), [eventId]);
+  const rawEventId = Array.isArray(params.eventId) ? params.eventId[0] : params.eventId;
+  const eventId = rawEventId ? Number(rawEventId) : NaN;
+
+  const [event, setEvent] = useState<EventRow | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const [method, setMethod] = useState<PaymentMethod>('card');
   const [cardNumber, setCardNumber] = useState('');
@@ -38,21 +75,52 @@ export default function ReviewPurchase() {
   const [cvv, setCvv] = useState('');
   const [errors, setErrors] = useState<PaymentErrors>({});
   const [banner, setBanner] = useState<string | null>(null);
+  const [processing, setProcessing] = useState(false);
 
-  if (!event) {
-    return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
-        <ScreenHeader title="Review Purchase" onBack={() => router.back()} />
-        <View style={styles.emptyState}>
-          <Ionicons name="alert-circle-outline" size={32} color={colors.textMuted} />
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>Ticket unavailable</Text>
-          <Text style={[styles.emptyText, { color: colors.textMuted }]}>The selected ticket could not be found.</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  useEffect(() => {
+    const loadEvent = async () => {
+      if (!Number.isFinite(eventId)) {
+        setLoading(false);
+        setEvent(null);
+        return;
+      }
 
-  const total = event.price;
+      try {
+        setLoading(true);
+
+        const { data, error } = await supabase
+          .from('events')
+          .select(
+            `
+            event_id,
+            title,
+            start_datetime,
+            end_datetime,
+            location_text,
+            ticket_price,
+            pricing_model
+          `
+          )
+          .eq('event_id', eventId)
+          .single();
+
+        if (error) throw error;
+        setEvent(data);
+      } catch (error) {
+        console.error(error);
+        setEvent(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadEvent();
+  }, [eventId]);
+
+  const total = useMemo(() => {
+    if (!event) return 0;
+    return event.pricing_model === 'paid' ? event.ticket_price ?? 0 : 0;
+  }, [event]);
 
   const validateCard = () => {
     const nextErrors: PaymentErrors = {};
@@ -81,30 +149,121 @@ export default function ReviewPurchase() {
     return Object.keys(nextErrors).length === 0;
   };
 
-  const handlePay = () => {
+  const upsertBookingAndPayment = async () => {
+    if (!user || !event) throw new Error('Missing user or event');
+
+    const { data: existingBooking, error: bookingLookupError } = await supabase
+      .from('bookings')
+      .select('booking_id, booking_status')
+      .eq('event_id', event.event_id)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (bookingLookupError) throw bookingLookupError;
+
+    let bookingId: number;
+
+    if (existingBooking?.booking_id) {
+      const { data: updatedBooking, error: updateBookingError } = await supabase
+        .from('bookings')
+        .update({ booking_status: 'confirmed' })
+        .eq('booking_id', existingBooking.booking_id)
+        .select('booking_id')
+        .single();
+
+      if (updateBookingError) throw updateBookingError;
+      bookingId = updatedBooking.booking_id;
+    } else {
+      const { data: insertedBooking, error: insertBookingError } = await supabase
+        .from('bookings')
+        .insert({
+          event_id: event.event_id,
+          user_id: user.id,
+          booking_status: 'confirmed',
+        })
+        .select('booking_id')
+        .single();
+
+      if (insertBookingError) throw insertBookingError;
+      bookingId = insertedBooking.booking_id;
+    }
+
+    const paymentMethod =
+      method === 'apple' ? 'apple_pay' : 'card';
+
+    const { data: existingPayment, error: paymentLookupError } = await supabase
+      .from('payments')
+      .select('payment_id')
+      .eq('booking_id', bookingId)
+      .maybeSingle();
+
+    if (paymentLookupError) throw paymentLookupError;
+
+    if (existingPayment?.payment_id) {
+      const { error: updatePaymentError } = await supabase
+        .from('payments')
+        .update({
+          amount: total,
+          payment_method: paymentMethod,
+          payment_status: 'paid',
+          paid_at: new Date().toISOString(),
+        })
+        .eq('payment_id', existingPayment.payment_id);
+
+      if (updatePaymentError) throw updatePaymentError;
+    } else {
+      const { error: insertPaymentError } = await supabase
+        .from('payments')
+        .insert({
+          booking_id: bookingId,
+          amount: total,
+          payment_method: paymentMethod,
+          payment_status: 'paid',
+          paid_at: new Date().toISOString(),
+        });
+
+      if (insertPaymentError) throw insertPaymentError;
+    }
+  };
+
+  const handlePay = async () => {
     setBanner(null);
 
-    if (method === 'apple') {
-      if (Platform.OS !== 'ios') {
-        setBanner('Apple Pay is not available on this device');
-        return;
-      }
-      completePayment();
+    if (!user) {
+      setBanner('You must be logged in to complete this purchase');
       return;
     }
 
-    if (!validateCard()) return;
-    completePayment();
-  };
+    if (!event) {
+      setBanner('The selected event is unavailable');
+      return;
+    }
 
-  const completePayment = () => {
+    if (method === 'apple' && Platform.OS !== 'ios') {
+      setBanner('Apple Pay is not available on this device');
+      return;
+    }
+
+    if (event.pricing_model === 'paid' && method === 'card' && !validateCard()) {
+      return;
+    }
+
     try {
-      joinEvent(event.id);
+      setProcessing(true);
+      await upsertBookingAndPayment();
+
       Alert.alert('Payment complete', 'Your booking is confirmed.', [
         { text: 'OK', onPress: () => router.replace('/bookings') },
       ]);
-    } catch {
-      setBanner('Payment could not be completed. Please try again');
+    } catch (error) {
+      console.error(error);
+      setBanner(
+        error instanceof Error
+          ? error.message
+          : 'Payment could not be completed. Please try again'
+      );
+    } finally {
+      setProcessing(false);
     }
   };
 
@@ -115,9 +274,45 @@ export default function ReviewPurchase() {
       .replace(/(.{4})/g, '$1 ')
       .trim();
 
+  if (loading) {
+    return (
+      <SafeAreaView
+        style={[styles.safeArea, { backgroundColor: colors.background }]}
+        edges={['top', 'left', 'right']}
+      >
+        <ScreenHeader title="Review Purchase" onBack={() => router.back()} />
+        <View style={styles.emptyState}>
+          <Text style={[styles.emptyText, { color: colors.textMuted }]}>Loading ticket...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!event) {
+    return (
+      <SafeAreaView
+        style={[styles.safeArea, { backgroundColor: colors.background }]}
+        edges={['top', 'left', 'right']}
+      >
+        <ScreenHeader title="Review Purchase" onBack={() => router.back()} />
+        <View style={styles.emptyState}>
+          <Ionicons name="alert-circle-outline" size={32} color={colors.textMuted} />
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>Ticket unavailable</Text>
+          <Text style={[styles.emptyText, { color: colors.textMuted }]}>
+            The selected ticket could not be found.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: colors.background }]}
+      edges={['top', 'left', 'right']}
+    >
       <ScreenHeader title="Review Purchase" onBack={() => router.back()} />
+
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}
@@ -134,24 +329,49 @@ export default function ReviewPurchase() {
             </View>
           ) : null}
 
-          <View style={[styles.ticketCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View
+            style={[
+              styles.ticketCard,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
+          >
             <Text style={[styles.cardEyebrow, { color: colors.textMuted }]}>Ticket Detail</Text>
             <Text style={[styles.eventTitle, { color: colors.text }]}>{event.title}</Text>
+
             <View style={styles.ticketRow}>
               <Ionicons name="calendar-outline" size={17} color={colors.textMuted} />
-              <Text style={[styles.ticketText, { color: colors.textMuted }]}>{formatEventSchedule(event, false)}</Text>
+              <Text style={[styles.ticketText, { color: colors.textMuted }]}>
+                {formatEventSchedule(event.start_datetime, event.end_datetime, false)}
+              </Text>
             </View>
+
             <View style={styles.ticketRow}>
               <Ionicons name="person-outline" size={17} color={colors.textMuted} />
               <Text style={[styles.ticketText, { color: colors.textMuted }]}>1x Guest</Text>
             </View>
+
+            <View style={styles.ticketRow}>
+              <Ionicons name="location-outline" size={17} color={colors.textMuted} />
+              <Text style={[styles.ticketText, { color: colors.textMuted }]}>
+                {event.location_text}
+              </Text>
+            </View>
+
             <View style={[styles.priceBadge, { backgroundColor: `${colors.success}22` }]}>
-              <Text style={[styles.priceText, { color: colors.success }]}>${total.toFixed(2)}</Text>
+              <Text style={[styles.priceText, { color: colors.success }]}>
+                ${total.toFixed(2)}
+              </Text>
             </View>
           </View>
 
-          <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View
+            style={[
+              styles.section,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
+          >
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Payment Method</Text>
+
             <PaymentOption
               active={method === 'apple'}
               icon="logo-apple"
@@ -163,6 +383,7 @@ export default function ReviewPurchase() {
                 setBanner(null);
               }}
             />
+
             <PaymentOption
               active={method === 'card'}
               icon="card-outline"
@@ -176,8 +397,14 @@ export default function ReviewPurchase() {
           </View>
 
           {method === 'card' ? (
-            <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View
+              style={[
+                styles.section,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+            >
               <Text style={[styles.sectionTitle, { color: colors.text }]}>Credit Card</Text>
+
               <Field label="Card Number" error={errors.cardNumber}>
                 <Input
                   value={cardNumber}
@@ -190,6 +417,7 @@ export default function ReviewPurchase() {
                   error={errors.cardNumber}
                 />
               </Field>
+
               <View style={styles.inlineFields}>
                 <View style={styles.inlineField}>
                   <Field label="Expiry" error={errors.expiry}>
@@ -197,7 +425,11 @@ export default function ReviewPurchase() {
                       value={expiry}
                       onChangeText={(value) => {
                         const clean = value.replace(/[^\d]/g, '').slice(0, 4);
-                        setExpiry(clean.length > 2 ? `${clean.slice(0, 2)}/${clean.slice(2)}` : clean);
+                        setExpiry(
+                          clean.length > 2
+                            ? `${clean.slice(0, 2)}/${clean.slice(2)}`
+                            : clean
+                        );
                         setErrors((current) => ({ ...current, expiry: undefined }));
                       }}
                       placeholder="MM/YY"
@@ -206,6 +438,7 @@ export default function ReviewPurchase() {
                     />
                   </Field>
                 </View>
+
                 <View style={styles.inlineField}>
                   <Field label="CVV" error={errors.cvv}>
                     <Input
@@ -227,10 +460,17 @@ export default function ReviewPurchase() {
 
           <Pressable
             onPress={handlePay}
+            disabled={processing}
             accessibilityRole="button"
-            style={({ pressed }) => [styles.payButton, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.payButton,
+              pressed && styles.pressed,
+              processing && styles.disabled,
+            ]}
           >
-            <Text style={styles.payButtonText}>Pay Now • ${total.toFixed(2)}</Text>
+            <Text style={styles.payButtonText}>
+              {processing ? 'Processing...' : `Pay Now • $${total.toFixed(2)}`}
+            </Text>
           </Pressable>
 
           <Text style={[styles.termsText, { color: colors.textMuted }]}>
@@ -335,26 +575,21 @@ const styles = StyleSheet.create({
   },
   errorBannerText: {
     flex: 1,
-    color: theme.colors.error,
     fontSize: theme.fontSize.sm,
     fontWeight: '800',
   },
   ticketCard: {
     borderRadius: 24,
-    backgroundColor: theme.colors.background,
     borderWidth: 1,
-    borderColor: theme.colors.border,
     padding: theme.spacing.lg,
     gap: theme.spacing.sm,
   },
   cardEyebrow: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
     fontWeight: '900',
     textTransform: 'uppercase',
   },
   eventTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.xl,
     fontWeight: '900',
   },
@@ -365,7 +600,6 @@ const styles = StyleSheet.create({
   },
   ticketText: {
     flex: 1,
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
@@ -373,25 +607,20 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     marginTop: theme.spacing.sm,
     borderRadius: theme.radius.full,
-    backgroundColor: '#12331F',
     paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.sm,
   },
   priceText: {
-    color: '#86EFAC',
     fontSize: theme.fontSize.md,
     fontWeight: '900',
   },
   section: {
     borderRadius: theme.radius.lg,
-    backgroundColor: theme.colors.background,
     borderWidth: 1,
-    borderColor: theme.colors.border,
     padding: theme.spacing.lg,
     gap: theme.spacing.md,
   },
   sectionTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.lg,
     fontWeight: '900',
   },
@@ -405,6 +634,9 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     padding: theme.spacing.md,
   },
+  paymentOptionActive: {
+    borderColor: theme.colors.primary,
+  },
   paymentIcon: {
     width: 42,
     height: 42,
@@ -416,12 +648,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   paymentTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.md,
     fontWeight: '900',
   },
   paymentSubtitle: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     marginTop: 2,
   },
@@ -447,7 +677,6 @@ const styles = StyleSheet.create({
     gap: theme.spacing.xs,
   },
   fieldLabel: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontWeight: '800',
   },
@@ -476,7 +705,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   termsText: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 20,
     textAlign: 'center',
@@ -487,12 +715,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   error: {
-    color: theme.colors.error,
     fontSize: theme.fontSize.xs,
     fontWeight: '700',
   },
   pressed: {
     opacity: 0.75,
+  },
+  disabled: {
+    opacity: 0.5,
   },
   emptyState: {
     flex: 1,
@@ -502,12 +732,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.xl,
   },
   emptyTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.md,
     fontWeight: '800',
   },
   emptyText: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     textAlign: 'center',
   },

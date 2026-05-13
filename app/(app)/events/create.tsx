@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  LayoutChangeEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -15,67 +16,214 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import {
-  CATEGORY_TAGS,
-  LOCATION_SUGGESTIONS,
-  PaymentModel,
-  createEvent,
-} from '../../../src/lib/mockEvents';
+import { useAuth } from '../../../src/contexts/AuthContext';
+import { supabase } from '../../../src/lib/supabase';
 import { DateTimeField } from '../../../src/ui/DateTimeField';
 import { Input } from '../../../src/ui/Input';
 import { ScreenHeader } from '../../../src/ui/ScreenHeader';
 import { theme, useThemeColors, useThemeMode } from '../../../src/ui/theme';
 
-type Errors = Partial<Record<
-  | 'title'
-  | 'description'
-  | 'tags'
-  | 'start'
-  | 'end'
-  | 'location'
-  | 'capacity'
-  | 'price',
-  string
->>;
+type PaymentModel = 'Free' | 'Paid';
+type MapRegion = 'romania' | 'world';
+
+type TagRow = {
+  tag_id: number;
+  name: string;
+};
+
+type Errors = Partial<
+  Record<
+    | 'title'
+    | 'description'
+    | 'tags'
+    | 'start'
+    | 'end'
+    | 'location'
+    | 'capacity'
+    | 'price'
+    | 'map',
+    string
+  >
+>;
 
 const ACCEPTED_IMAGE = /\.(jpg|jpeg|png)$/i;
+const TILE_SIZE = 256;
+const MIN_ZOOM = 2;
+const MAX_ZOOM = 14;
+
+const REGIONS: Record<
+  MapRegion,
+  { label: string; latitude: number; longitude: number; zoom: number }
+> = {
+  romania: { label: 'Romania', latitude: 45.9432, longitude: 24.9668, zoom: 6 },
+  world: { label: 'World', latitude: 20, longitude: 0, zoom: 2 },
+};
+
+function lonToTileX(longitude: number, zoom: number) {
+  return ((longitude + 180) / 360) * 2 ** zoom;
+}
+
+function latToTileY(latitude: number, zoom: number) {
+  const radians = (latitude * Math.PI) / 180;
+  return (
+    ((1 - Math.log(Math.tan(radians) + 1 / Math.cos(radians)) / Math.PI) / 2) *
+    2 ** zoom
+  );
+}
+
+function tileXToLon(tileX: number, zoom: number) {
+  return (tileX / 2 ** zoom) * 360 - 180;
+}
+
+function tileYToLat(tileY: number, zoom: number) {
+  const radians = Math.atan(Math.sinh(Math.PI * (1 - (2 * tileY) / 2 ** zoom)));
+  return (radians * 180) / Math.PI;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function tileUrl(zoom: number, x: number, y: number) {
+  const max = 2 ** zoom;
+  const wrappedX = ((x % max) + max) % max;
+  const clampedY = Math.max(0, Math.min(max - 1, y));
+  return `https://tile.openstreetmap.org/${zoom}/${wrappedX}/${clampedY}.png`;
+}
 
 export default function CreateEvent() {
   const router = useRouter();
+  const { user } = useAuth();
   const colors = useThemeColors();
   const themeMode = useThemeMode();
 
-  const palette = {
-    screen: colors.background,
-    card: themeMode === 'dark' ? '#111827' : '#FFFFFF',
-    softCard: themeMode === 'dark' ? '#0F172A' : '#F8FAFC',
-    softAccent: themeMode === 'dark' ? '#1E293B' : '#EEF0FF',
-    chip: themeMode === 'dark' ? '#1E293B' : '#FFFFFF',
-    stepper: themeMode === 'dark' ? '#1E293B' : '#EEF0FF',
-    inputSurface: themeMode === 'dark' ? '#0F172A' : '#FFFFFF',
-    elevated: themeMode === 'dark' ? '#020617' : '#FFFFFF',
-    border: colors.border,
-    mutedBorder: themeMode === 'dark' ? '#475569' : '#CBD5E1',
-  };
+  const palette = useMemo(
+    () => ({
+      screen: colors.background,
+      card: themeMode === 'dark' ? '#111827' : '#FFFFFF',
+      softCard: themeMode === 'dark' ? '#0F172A' : '#F8FAFC',
+      softAccent: themeMode === 'dark' ? '#1E293B' : '#EEF0FF',
+      chip: themeMode === 'dark' ? '#1E293B' : '#FFFFFF',
+      stepper: themeMode === 'dark' ? '#1E293B' : '#EEF0FF',
+      mutedBorder: themeMode === 'dark' ? '#475569' : '#CBD5E1',
+    }),
+    [colors.background, themeMode]
+  );
+
+  const [availableTags, setAvailableTags] = useState<TagRow[]>([]);
+  const [loadingTags, setLoadingTags] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   const [coverUri, setCoverUri] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [showMoreTags, setShowMoreTags] = useState(false);
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [endTime, setEndTime] = useState<Date | null>(null);
   const [locationQuery, setLocationQuery] = useState('');
-  const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
   const [capacity, setCapacity] = useState('25');
   const [paymentModel, setPaymentModel] = useState<PaymentModel>('Free');
   const [price, setPrice] = useState('25');
   const [errors, setErrors] = useState<Errors>({});
 
-  const visibleTags = showMoreTags ? CATEGORY_TAGS : CATEGORY_TAGS.slice(0, 4);
-  const locationMatches = LOCATION_SUGGESTIONS.filter((location) =>
-    location.label.toLowerCase().includes(locationQuery.trim().toLowerCase()),
-  ).slice(0, 4);
+  const [mapRegion, setMapRegion] = useState<MapRegion>('romania');
+  const [mapZoom, setMapZoom] = useState<number>(REGIONS.romania.zoom);
+  const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
+  const [pickedLatitude, setPickedLatitude] = useState<number | null>(null);
+  const [pickedLongitude, setPickedLongitude] = useState<number | null>(null);
+
+  useEffect(() => {
+    const loadTags = async () => {
+      try {
+        setLoadingTags(true);
+
+        const { data, error } = await supabase
+          .from('tags')
+          .select('tag_id, name')
+          .order('name', { ascending: true });
+
+        if (error) throw error;
+        setAvailableTags(data ?? []);
+      } catch (error) {
+        console.error(error);
+        Alert.alert(
+          'Error',
+          error instanceof Error ? error.message : 'Failed to load tags'
+        );
+      } finally {
+        setLoadingTags(false);
+      }
+    };
+
+    loadTags();
+  }, []);
+
+  useEffect(() => {
+    setMapZoom(REGIONS[mapRegion].zoom);
+  }, [mapRegion]);
+
+  const visibleTags = showMoreTags ? availableTags : availableTags.slice(0, 6);
+
+  const mapCenter = REGIONS[mapRegion];
+  const mapWidth = mapSize.width || 320;
+  const mapHeight = mapSize.height || 220;
+  const centerTileX = lonToTileX(mapCenter.longitude, mapZoom);
+  const centerTileY = latToTileY(mapCenter.latitude, mapZoom);
+
+  const tiles = useMemo(() => {
+    const halfColumns = Math.ceil(mapWidth / TILE_SIZE / 2) + 2;
+    const halfRows = Math.ceil(mapHeight / TILE_SIZE / 2) + 2;
+    const baseX = Math.floor(centerTileX);
+    const baseY = Math.floor(centerTileY);
+    const maxY = 2 ** mapZoom - 1;
+    const nextTiles: { key: string; x: number; y: number; left: number; top: number }[] = [];
+
+    for (let y = baseY - halfRows; y <= baseY + halfRows; y += 1) {
+      if (y < 0 || y > maxY) continue;
+      for (let x = baseX - halfColumns; x <= baseX + halfColumns; x += 1) {
+        nextTiles.push({
+          key: `${mapZoom}-${x}-${y}`,
+          x,
+          y,
+          left: mapWidth / 2 + (x - centerTileX) * TILE_SIZE,
+          top: mapHeight / 2 + (y - centerTileY) * TILE_SIZE,
+        });
+      }
+    }
+
+    return nextTiles;
+  }, [centerTileX, centerTileY, mapHeight, mapWidth, mapZoom]);
+
+  const pickedMarkerPosition = useMemo(() => {
+    if (pickedLatitude === null || pickedLongitude === null) return null;
+
+    const left =
+      mapWidth / 2 + (lonToTileX(pickedLongitude, mapZoom) - centerTileX) * TILE_SIZE;
+    const top =
+      mapHeight / 2 + (latToTileY(pickedLatitude, mapZoom) - centerTileY) * TILE_SIZE;
+
+    return { left, top };
+  }, [pickedLatitude, pickedLongitude, mapWidth, mapHeight, mapZoom, centerTileX, centerTileY]);
+
+  const handleMapLayout = (event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    setMapSize({ width, height });
+  };
+
+  const handleMapPress = (event: any) => {
+    const { locationX, locationY } = event.nativeEvent;
+
+    const tileX = centerTileX + (locationX - mapWidth / 2) / TILE_SIZE;
+    const tileY = centerTileY + (locationY - mapHeight / 2) / TILE_SIZE;
+
+    const latitude = clamp(tileYToLat(tileY, mapZoom), -85, 85);
+    const longitude = tileXToLon(tileX, mapZoom);
+
+    setPickedLatitude(latitude);
+    setPickedLongitude(longitude);
+    setErrors((current) => ({ ...current, map: undefined }));
+  };
 
   const pickCover = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -105,9 +253,11 @@ export default function CreateEvent() {
     setCoverUri(asset.uri);
   };
 
-  const toggleTag = (tag: string) => {
-    setSelectedTags((current) =>
-      current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag],
+  const toggleTag = (tagId: number) => {
+    setSelectedTagIds((current) =>
+      current.includes(tagId)
+        ? current.filter((item) => item !== tagId)
+        : [...current, tagId]
     );
     setErrors((current) => ({ ...current, tags: undefined }));
   };
@@ -116,6 +266,7 @@ export default function CreateEvent() {
     const nextErrors: Errors = {};
     const trimmedTitle = title.trim();
     const trimmedDescription = description.trim();
+    const trimmedLocation = locationQuery.trim();
     const now = new Date();
     const numericCapacity = Number.parseInt(capacity, 10);
     const numericPrice = Number(price);
@@ -127,60 +278,125 @@ export default function CreateEvent() {
     if (!trimmedDescription) nextErrors.description = 'Description is required';
     else if (trimmedDescription.length > 1000) nextErrors.description = 'Description is too long';
 
-    if (selectedTags.length === 0) nextErrors.tags = 'Please select at least one category tag';
+    if (selectedTagIds.length === 0) nextErrors.tags = 'Please select at least one category tag';
 
     if (!startTime) nextErrors.start = 'Start time is required';
     else if (startTime <= now) nextErrors.start = 'Please select a future start date and time';
 
     if (!endTime) nextErrors.end = 'End time is required';
-    else if (startTime && endTime <= startTime) nextErrors.end = 'End time must be later than start time';
+    else if (startTime && endTime <= startTime) {
+      nextErrors.end = 'End time must be later than start time';
+    }
 
-    if (!selectedLocation) nextErrors.location = 'Location is required';
+    if (!trimmedLocation) nextErrors.location = 'Location is required';
+    if (pickedLatitude === null || pickedLongitude === null) {
+      nextErrors.map = 'Please pick a point on the map';
+    }
+
     if (!Number.isFinite(numericCapacity) || numericCapacity <= 0) {
       nextErrors.capacity = 'Capacity must be greater than 0';
     }
+
     if (paymentModel === 'Paid' && (!Number.isFinite(numericPrice) || numericPrice <= 0)) {
       nextErrors.price = 'Ticket price must be greater than 0';
     }
 
     setErrors(nextErrors);
+
     return {
       valid: Object.keys(nextErrors).length === 0,
       start: startTime,
       end: endTime,
       capacity: numericCapacity,
       price: numericPrice,
+      location: trimmedLocation,
+      latitude: pickedLatitude,
+      longitude: pickedLongitude,
     };
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (!user) {
+      Alert.alert('Error', 'You must be logged in to create an event.');
+      return;
+    }
+
     const result = validate();
-    if (!result.valid || !result.start || !result.end) return;
+    if (
+      !result.valid ||
+      !result.start ||
+      !result.end ||
+      result.latitude === null ||
+      result.longitude === null
+    ) {
+      return;
+    }
 
     try {
-      const event = createEvent({
-        title,
-        description,
-        tags: selectedTags,
-        startsAt: result.start,
-        endsAt: result.end,
-        venue: selectedLocation ?? locationQuery,
-        imageUrl: coverUri,
-        capacity: result.capacity,
-        paymentModel,
-        price: result.price,
-      });
+      setSubmitting(true);
 
-      Alert.alert('Event created', 'Your event has been set up successfully.');
-      router.replace({ pathname: '/events/[id]', params: { id: event.id } });
-    } catch {
-      Alert.alert('Error', 'The event could not be created. Please try again');
+      const { data: insertedEvent, error: eventError } = await supabase
+        .from('events')
+        .insert({
+          organizer_user_id: user.id,
+          title: title.trim(),
+          description: description.trim(),
+          cover_image_url: null,
+          start_datetime: result.start.toISOString(),
+          end_datetime: result.end.toISOString(),
+          location_text: result.location,
+          latitude: result.latitude,
+          longitude: result.longitude,
+          max_participants: result.capacity,
+          pricing_model: paymentModel === 'Paid' ? 'paid' : 'free',
+          ticket_price: paymentModel === 'Paid' ? result.price : null,
+          status: 'published',
+        })
+        .select('event_id')
+        .single();
+
+      if (eventError) throw eventError;
+      if (!insertedEvent) throw new Error('Event was not created');
+
+      if (selectedTagIds.length > 0) {
+        const rows = selectedTagIds.map((tagId) => ({
+          event_id: insertedEvent.event_id,
+          tag_id: tagId,
+        }));
+
+        const { error: tagsError } = await supabase.from('event_tags').insert(rows);
+        if (tagsError) throw tagsError;
+      }
+
+      Alert.alert(
+        'Event created',
+        coverUri
+          ? 'Your event has been created. Cover upload preview is local only for now.'
+          : 'Your event has been created successfully.'
+      );
+
+      router.replace({
+        pathname: '/events/[id]',
+        params: { id: String(insertedEvent.event_id) },
+      });
+    } catch (error) {
+      console.error(error);
+      Alert.alert(
+        'Error',
+        error instanceof Error ? error.message : 'The event could not be created. Please try again.'
+      );
+    } finally {
+      setSubmitting(false);
     }
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: palette.screen }]} edges={['top', 'left', 'right']}>
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: palette.screen }]}
+      edges={['top', 'left', 'right']}
+    >
       <ScreenHeader title="Create Event" onBack={() => router.back()} />
+
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}
@@ -206,13 +422,16 @@ export default function CreateEvent() {
               <View style={styles.coverPlaceholder}>
                 <Ionicons name="image-outline" size={30} color={colors.primary} />
                 <Text style={[styles.coverTitle, { color: colors.primary }]}>Add Cover Image</Text>
-                <Text style={[styles.coverSubcopy, { color: colors.textMuted }]}>Recommended size: 1200 x 675 px</Text>
+                <Text style={[styles.coverSubcopy, { color: colors.textMuted }]}>
+                  Recommended size: 1200 x 675 px
+                </Text>
               </View>
             )}
           </Pressable>
 
           <View style={[styles.section, { backgroundColor: palette.card, borderColor: colors.border }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Event Information</Text>
+
             <Field label="Event Title" error={errors.title} required>
               <Input
                 value={title}
@@ -224,6 +443,7 @@ export default function CreateEvent() {
                 error={errors.title}
               />
             </Field>
+
             <Field label="Description" error={errors.description} required>
               <Input
                 value={description}
@@ -242,39 +462,70 @@ export default function CreateEvent() {
 
           <View style={[styles.section, { backgroundColor: palette.card, borderColor: colors.border }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Category Tags</Text>
-            <View style={styles.tagWrap}>
-              {visibleTags.map((tag) => {
-                const active = selectedTags.includes(tag);
-                return (
-                  <Pressable
-                    key={tag}
-                    onPress={() => toggleTag(tag)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: active }}
-                    style={({ pressed }) => [
-                      styles.tag,
-                      { backgroundColor: palette.chip, borderColor: colors.border },
-                      active && { backgroundColor: colors.primary, borderColor: colors.primary },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Text style={[styles.tagText, { color: colors.textMuted }, active && styles.tagTextActive]}>{tag}</Text>
-                  </Pressable>
-                );
-              })}
-              <Pressable
-                onPress={() => setShowMoreTags((value) => !value)}
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.tag, { backgroundColor: palette.chip, borderColor: colors.border }, pressed && styles.pressed]}
-              >
-                <Text style={[styles.tagText, { color: colors.textMuted }]}>{showMoreTags ? 'Less' : '+ More'}</Text>
-              </Pressable>
-            </View>
-            {errors.tags ? <Text style={[styles.error, { color: colors.error }]}>{errors.tags}</Text> : null}
+
+            {loadingTags ? (
+              <Text style={[styles.sectionHint, { color: colors.textMuted }]}>Loading tags...</Text>
+            ) : availableTags.length === 0 ? (
+              <Text style={[styles.sectionHint, { color: colors.textMuted }]}>No tags available yet.</Text>
+            ) : (
+              <>
+                <View style={styles.tagWrap}>
+                  {visibleTags.map((tag) => {
+                    const active = selectedTagIds.includes(tag.tag_id);
+
+                    return (
+                      <Pressable
+                        key={tag.tag_id}
+                        onPress={() => toggleTag(tag.tag_id)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
+                        style={({ pressed }) => [
+                          styles.tag,
+                          { backgroundColor: palette.chip, borderColor: colors.border },
+                          active && { backgroundColor: colors.primary, borderColor: colors.primary },
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.tagText,
+                            { color: colors.textMuted },
+                            active && styles.tagTextActive,
+                          ]}
+                        >
+                          {tag.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+
+                  {availableTags.length > 6 ? (
+                    <Pressable
+                      onPress={() => setShowMoreTags((value) => !value)}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [
+                        styles.tag,
+                        { backgroundColor: palette.chip, borderColor: colors.border },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text style={[styles.tagText, { color: colors.textMuted }]}>
+                        {showMoreTags ? 'Less' : '+ More'}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                {errors.tags ? (
+                  <Text style={[styles.error, { color: colors.error }]}>{errors.tags}</Text>
+                ) : null}
+              </>
+            )}
           </View>
 
           <View style={[styles.section, { backgroundColor: palette.card, borderColor: colors.border }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Schedule</Text>
+
             <Field label="Start Time" error={errors.start} required>
               <DateTimeField
                 value={startTime}
@@ -292,6 +543,7 @@ export default function CreateEvent() {
                 error={errors.start}
               />
             </Field>
+
             <Field label="End Time" error={errors.end} required>
               <DateTimeField
                 value={endTime}
@@ -308,48 +560,127 @@ export default function CreateEvent() {
 
           <View style={[styles.section, { backgroundColor: palette.card, borderColor: colors.border }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Location</Text>
+
             <Field label="Address" error={errors.location} required>
               <Input
                 value={locationQuery}
                 onChangeText={(value) => {
                   setLocationQuery(value);
-                  setSelectedLocation(null);
                   setErrors((current) => ({ ...current, location: undefined }));
                 }}
-                placeholder="Search address..."
+                placeholder="Enter event address..."
                 error={errors.location}
-                leftElement={<Ionicons name="search-outline" size={18} color={colors.textMuted} />}
+                leftElement={
+                  <Ionicons name="location-outline" size={18} color={colors.textMuted} />
+                }
               />
             </Field>
-            {locationQuery.trim().length > 0 && !selectedLocation ? (
-              <View style={[styles.suggestionBox, { borderColor: colors.border }]}>
-                {locationMatches.map((location) => (
-                  <Pressable
-                    key={location.label}
-                    onPress={() => {
-                      setSelectedLocation(location.label);
-                      setLocationQuery(location.label);
-                    }}
-                    style={({ pressed }) => [
-                      styles.suggestionRow,
-                      { backgroundColor: palette.card, borderBottomColor: colors.border },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Ionicons name="location-outline" size={17} color={colors.primary} />
-                    <Text style={[styles.suggestionText, { color: colors.text }]}>{location.label}</Text>
-                  </Pressable>
-                ))}
+
+            <Field label="Map Picker" error={errors.map} required>
+              <View style={styles.mapSection}>
+                <View style={[styles.regionControl, { backgroundColor: palette.softCard, borderColor: colors.border }]}>
+                  {(['romania', 'world'] as const).map((option) => {
+                    const active = option === mapRegion;
+
+                    return (
+                      <Pressable
+                        key={option}
+                        onPress={() => setMapRegion(option)}
+                        style={({ pressed }) => [
+                          styles.regionButton,
+                          active && { backgroundColor: colors.primary },
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <Text style={[styles.regionText, { color: active ? '#FFFFFF' : colors.textMuted }]}>
+                          {REGIONS[option].label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <View
+                  style={[styles.mapCanvas, { borderColor: colors.border }]}
+                  onLayout={handleMapLayout}
+                >
+                  {tiles.map((tile) => (
+                    <View
+                      key={tile.key}
+                      pointerEvents="none"
+                      style={[
+                        styles.mapTile,
+                        {
+                          left: tile.left,
+                          top: tile.top,
+                        },
+                      ]}
+                    >
+                      <Image source={{ uri: tileUrl(mapZoom, tile.x, tile.y) }} style={styles.mapTileImage} />
+                    </View>
+                  ))}
+
+                  <Pressable style={styles.mapTapLayer} onPress={handleMapPress} />
+
+                  {pickedMarkerPosition ? (
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.selectedMarker,
+                        {
+                          left: pickedMarkerPosition.left - 16,
+                          top: pickedMarkerPosition.top - 32,
+                        },
+                      ]}
+                    >
+                      <Ionicons name="location" size={32} color={colors.primary} />
+                    </View>
+                  ) : null}
+
+                  <View style={styles.mapControls}>
+                    <Pressable
+                      onPress={() => setMapZoom((value) => clamp(value + 1, MIN_ZOOM, MAX_ZOOM))}
+                      style={({ pressed }) => [styles.mapControlButton, pressed && styles.pressed]}
+                    >
+                      <Ionicons name="add" size={20} color={colors.primary} />
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => setMapZoom((value) => clamp(value - 1, MIN_ZOOM, MAX_ZOOM))}
+                      style={({ pressed }) => [styles.mapControlButton, pressed && styles.pressed]}
+                    >
+                      <Ionicons name="remove" size={20} color={colors.primary} />
+                    </Pressable>
+                  </View>
+                </View>
+
+                <Text style={[styles.mapHint, { color: colors.textMuted }]}>
+                  Tap on the map to place the event location.
+                </Text>
+
+                {pickedLatitude !== null && pickedLongitude !== null ? (
+                  <View style={[styles.coordinatesBox, { backgroundColor: palette.softCard, borderColor: colors.border }]}>
+                    <Text style={[styles.coordinatesText, { color: colors.text }]}>
+                      Latitude: {pickedLatitude.toFixed(6)}
+                    </Text>
+                    <Text style={[styles.coordinatesText, { color: colors.text }]}>
+                      Longitude: {pickedLongitude.toFixed(6)}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
-            ) : null}
+            </Field>
           </View>
 
           <View style={[styles.controlCard, { backgroundColor: palette.card, borderColor: colors.border }]}>
             <View>
               <Text style={[styles.controlTitle, { color: colors.text }]}>Capacity</Text>
               <Text style={[styles.controlSubtitle, { color: colors.textMuted }]}>Limit attendees</Text>
-              {errors.capacity ? <Text style={[styles.error, { color: colors.error }]}>{errors.capacity}</Text> : null}
+              {errors.capacity ? (
+                <Text style={[styles.error, { color: colors.error }]}>{errors.capacity}</Text>
+              ) : null}
             </View>
+
             <View style={styles.stepper}>
               <Pressable
                 onPress={() =>
@@ -357,10 +688,15 @@ export default function CreateEvent() {
                 }
                 accessibilityRole="button"
                 accessibilityLabel="Decrease capacity"
-                style={({ pressed }) => [styles.stepButton, { backgroundColor: palette.stepper }, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.stepButton,
+                  { backgroundColor: palette.stepper },
+                  pressed && styles.pressed,
+                ]}
               >
                 <Ionicons name="remove" size={20} color={colors.primary} />
               </Pressable>
+
               <Input
                 value={capacity}
                 onChangeText={(value) => {
@@ -372,13 +708,18 @@ export default function CreateEvent() {
                 error={errors.capacity}
                 style={styles.capacityInput}
               />
+
               <Pressable
                 onPress={() =>
                   setCapacity((value) => String((Number.parseInt(value, 10) || 0) + 1))
                 }
                 accessibilityRole="button"
                 accessibilityLabel="Increase capacity"
-                style={({ pressed }) => [styles.stepButton, { backgroundColor: palette.stepper }, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.stepButton,
+                  { backgroundColor: palette.stepper },
+                  pressed && styles.pressed,
+                ]}
               >
                 <Ionicons name="add" size={20} color={colors.primary} />
               </Pressable>
@@ -388,9 +729,11 @@ export default function CreateEvent() {
           <View style={[styles.section, { backgroundColor: palette.card, borderColor: colors.border }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Pricing Model</Text>
             <Text style={[styles.sectionHint, { color: colors.textMuted }]}>Entry fee</Text>
+
             <View style={[styles.segmented, { backgroundColor: palette.softCard }]}>
               {(['Free', 'Paid'] as const).map((option) => {
                 const active = paymentModel === option;
+
                 return (
                   <Pressable
                     key={option}
@@ -403,13 +746,20 @@ export default function CreateEvent() {
                       pressed && styles.pressed,
                     ]}
                   >
-                    <Text style={[styles.segmentText, { color: colors.textMuted }, active && styles.segmentTextActive]}>
+                    <Text
+                      style={[
+                        styles.segmentText,
+                        { color: colors.textMuted },
+                        active && styles.segmentTextActive,
+                      ]}
+                    >
                       {option}
                     </Text>
                   </Pressable>
                 );
               })}
             </View>
+
             {paymentModel === 'Paid' ? (
               <Field label="Ticket Price" error={errors.price}>
                 <Input
@@ -429,23 +779,33 @@ export default function CreateEvent() {
 
           <Pressable
             onPress={handleSubmit}
+            disabled={submitting}
             accessibilityRole="button"
             style={({ pressed }) => [
               styles.submitButton,
               { backgroundColor: colors.primary, shadowColor: colors.primary },
               pressed && styles.pressed,
+              submitting && styles.disabled,
             ]}
           >
-            <Text style={styles.submitButtonText}>Set Up Event</Text>
+            <Text style={styles.submitButtonText}>
+              {submitting ? 'Creating...' : 'Set Up Event'}
+            </Text>
           </Pressable>
 
           <Text style={[styles.termsText, { color: colors.textMuted }]}>
             By creating this event, you agree to our{' '}
-            <Text style={[styles.linkText, { color: colors.primary }]} onPress={() => Alert.alert('Community Guidelines')}>
+            <Text
+              style={[styles.linkText, { color: colors.primary }]}
+              onPress={() => Alert.alert('Community Guidelines')}
+            >
               Community Guidelines
             </Text>{' '}
             and{' '}
-            <Text style={[styles.linkText, { color: colors.primary }]} onPress={() => Alert.alert('Terms of Service')}>
+            <Text
+              style={[styles.linkText, { color: colors.primary }]}
+              onPress={() => Alert.alert('Terms of Service')}
+            >
               Terms of Service
             </Text>
             .
@@ -550,9 +910,6 @@ const styles = StyleSheet.create({
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
-  required: {
-    color: theme.colors.error,
-  },
   textArea: {
     minHeight: 118,
     paddingTop: theme.spacing.md,
@@ -570,10 +927,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
   },
-  tagActive: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
-  },
   tagText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
@@ -582,25 +935,75 @@ const styles = StyleSheet.create({
   tagTextActive: {
     color: '#FFFFFF',
   },
-  suggestionBox: {
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    overflow: 'hidden',
-    marginTop: -theme.spacing.sm,
-  },
-  suggestionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  mapSection: {
     gap: theme.spacing.sm,
-    padding: theme.spacing.md,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
   },
-  suggestionText: {
+  regionControl: {
+    flexDirection: 'row',
+    padding: 4,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+  },
+  regionButton: {
     flex: 1,
-    color: theme.colors.text,
+    height: 36,
+    borderRadius: theme.radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  regionText: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: '800',
+  },
+  mapCanvas: {
+    height: 240,
+    borderRadius: theme.radius.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    backgroundColor: '#BFD9DF',
+  },
+  mapTile: {
+    position: 'absolute',
+    width: TILE_SIZE,
+    height: TILE_SIZE,
+  },
+  mapTileImage: {
+    width: TILE_SIZE,
+    height: TILE_SIZE,
+  },
+  mapTapLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  selectedMarker: {
+    position: 'absolute',
+    zIndex: 5,
+  },
+  mapControls: {
+    position: 'absolute',
+    right: theme.spacing.sm,
+    top: theme.spacing.sm,
+    gap: theme.spacing.xs,
+  },
+  mapControlButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  mapHint: {
+    fontSize: theme.fontSize.sm,
+  },
+  coordinatesBox: {
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    padding: theme.spacing.md,
+    gap: theme.spacing.xs,
+  },
+  coordinatesText: {
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
@@ -659,9 +1062,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  segmentActive: {
-    backgroundColor: theme.colors.primary,
-  },
   segmentText: {
     color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
@@ -710,5 +1110,8 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.75,
+  },
+  disabled: {
+    opacity: 0.5,
   },
 });
