@@ -244,17 +244,27 @@ function BookingCard({
         <View
           style={[
             styles.badge,
-            variant === 'past'
-              ? { backgroundColor: colors.surface }
-              : { backgroundColor: '#DCFCE7' },
+            {
+              backgroundColor:
+                variant === 'past'
+                  ? colors.surface
+                  : colors.background === '#0F172A'
+                    ? '#1E3A1F'
+                    : '#DCFCE7',
+            },
           ]}
         >
           <Text
             style={[
               styles.badgeText,
-              variant === 'past'
-                ? { color: colors.textMuted }
-                : { color: '#15803D' },
+              {
+                color:
+                  variant === 'past'
+                    ? colors.textMuted
+                    : colors.background === '#0F172A'
+                      ? '#86EFAC'
+                      : '#15803D',
+              },
             ]}
           >
             {variant === 'past' ? 'Past' : 'Upcoming'}

@@ -18,7 +18,6 @@ import { Select } from '../../src/ui/Select';
 import { theme, useThemeColors } from '../../src/ui/theme';
 
 type ViewMode = 'map' | 'list';
-type MapRegion = 'romania' | 'world';
 type DateFilter = 'all' | 'today' | 'this_week' | 'this_month';
 type TimeFilter = 'all' | 'morning' | 'afternoon' | 'evening';
 
@@ -88,14 +87,6 @@ const TIME_FILTER_OPTIONS = [
   { value: 'afternoon', label: 'Afternoon' },
   { value: 'evening', label: 'Evening' },
 ] as const;
-
-const REGIONS: Record<
-  MapRegion,
-  { label: string; latitude: number; longitude: number; zoom: number }
-> = {
-  romania: { label: 'Romania', latitude: 45.9432, longitude: 24.9668, zoom: 6 },
-  world: { label: 'World', latitude: 20, longitude: 0, zoom: 2 },
-};
 
 function lonToTileX(longitude: number, zoom: number) {
   return ((longitude + 180) / 360) * 2 ** zoom;
@@ -192,7 +183,6 @@ export default function ExploreMap() {
   const colors = useThemeColors();
 
   const [viewMode, setViewMode] = useState<ViewMode>('map');
-  const [region, setRegion] = useState<MapRegion>('romania');
   const [dateFilter, setDateFilter] = useState<DateFilter>('all');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -443,13 +433,11 @@ export default function ExploreMap() {
       {viewMode === 'map' ? (
         <MapView
           events={visibleEvents}
-          region={region}
           selectedEvent={selectedEvent}
           onSelect={(event) => setSelectedEventId(event.id)}
           onClose={() => setSelectedEventId(null)}
           onOpen={openEvent}
           onPopular={handlePopular}
-          onRegionChange={setRegion}
           loading={loading}
         />
       ) : (
@@ -461,35 +449,31 @@ export default function ExploreMap() {
 
 function MapView({
   events,
-  region,
   selectedEvent,
   onSelect,
   onClose,
   onOpen,
   onPopular,
-  onRegionChange,
   loading,
 }: {
   events: EventItem[];
-  region: MapRegion;
   selectedEvent: EventItem | null;
   onSelect: (event: EventItem) => void;
   onClose: () => void;
   onOpen: (event: EventItem) => void;
   onPopular: () => void;
-  onRegionChange: (region: MapRegion) => void;
   loading: boolean;
 }) {
   const colors = useThemeColors();
   const isDark = colors.background === '#0F172A';
 
   const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
-  const [zoom, setZoom] = useState(REGIONS[region].zoom);
+  const [zoom, setZoom] = useState(11);
   const [, forceUpdate] = useState(0);
 
   const centerRef = useRef({
-    latitude: REGIONS[region].latitude,
-    longitude: REGIONS[region].longitude,
+    latitude: 44.4268,
+    longitude: 26.1025,
   });
 
   const panStartRef = useRef<{ lastDx: number; lastDy: number } | null>(null);
@@ -498,15 +482,6 @@ function MapView({
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
-
-  useEffect(() => {
-    centerRef.current = {
-      latitude: REGIONS[region].latitude,
-      longitude: REGIONS[region].longitude,
-    };
-    setZoom(REGIONS[region].zoom);
-    forceUpdate((n) => n + 1);
-  }, [region]);
 
   const center = centerRef.current;
   const mapWidth = mapSize.width || 360;
@@ -611,17 +586,12 @@ function MapView({
     setMapSize({ width, height });
   };
 
-  const handleRegionChange = (nextRegion: MapRegion) => {
-    onRegionChange(nextRegion);
-    onClose();
-  };
-
   const handleRecenter = () => {
     centerRef.current = {
-      latitude: REGIONS[region].latitude,
-      longitude: REGIONS[region].longitude,
+      latitude: 44.4268,
+      longitude: 26.1025,
     };
-    setZoom(REGIONS[region].zoom);
+    setZoom(11);
     forceUpdate((n) => n + 1);
   };
 
@@ -687,34 +657,7 @@ function MapView({
 
         <View style={[styles.dragLayer, { touchAction: 'none' } as any]} {...panResponder.panHandlers} />
 
-        <View
-          style={[
-            styles.regionControl,
-            { backgroundColor: colors.background, borderColor: colors.border },
-          ]}
-        >
-          {(['romania', 'world'] as const).map((option) => {
-            const active = option === region;
 
-            return (
-              <Pressable
-                key={option}
-                onPress={() => handleRegionChange(option)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                style={({ pressed }) => [
-                  styles.regionButton,
-                  active && { backgroundColor: colors.primary },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={[styles.regionText, { color: active ? '#FFFFFF' : colors.textMuted }]}>
-                  {REGIONS[option].label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
 
         <View style={styles.mapControls}>
           <Pressable
@@ -836,14 +779,6 @@ function MapView({
             <Text style={[styles.emptyTitle, { color: colors.text }]}>No events found</Text>
             <Text style={[styles.emptyText, { color: colors.textMuted }]}>
               Try another date, time, or tag.
-            </Text>
-          </View>
-        ) : visibleMarkers.length === 0 ? (
-          <View style={styles.emptyMap}>
-            <Ionicons name="location-outline" size={24} color={colors.textMuted} />
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>No map coordinates</Text>
-            <Text style={[styles.emptyText, { color: colors.textMuted }]}>
-              These events exist, but they do not have latitude and longitude yet.
             </Text>
           </View>
         ) : null}
@@ -969,10 +904,12 @@ function TagPills({ tags }: { tags: string[] }) {
 
   if (tags.length === 0) return null;
 
+  const pillBg = colors.background === '#0F172A' ? '#1E293B' : '#EEF0FF';
+
   return (
     <View style={styles.pillsWrap}>
       {tags.slice(0, 3).map((tag) => (
-        <View key={tag} style={[styles.pill, { backgroundColor: '#EEF0FF' }]}>
+        <View key={tag} style={[styles.pill, { backgroundColor: pillBg }]}>
           <Text style={[styles.pillText, { color: colors.primary }]}>{tag}</Text>
         </View>
       ))}
@@ -1031,7 +968,7 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.full,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.surface,
   },
   filterTagActive: {
     backgroundColor: theme.colors.primary,
@@ -1050,36 +987,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.lg,
     paddingBottom: theme.spacing.lg,
   },
-  regionControl: {
-    position: 'absolute',
-    left: theme.spacing.md,
-    top: theme.spacing.md,
-    zIndex: 5,
-    flexDirection: 'row',
-    padding: 4,
-    borderRadius: theme.radius.full,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  regionButton: {
-    minWidth: 84,
-    height: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: theme.radius.full,
-    paddingHorizontal: theme.spacing.md,
-  },
-  regionText: {
-    color: theme.colors.textMuted,
-    fontSize: theme.fontSize.sm,
-    fontWeight: '800',
-  },
   mapCanvas: {
     flex: 1,
     minHeight: 420,
@@ -1087,7 +994,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#BFD9DF',
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: theme.colors.border,
     shadowColor: '#000',
     shadowOpacity: 0.1,
     shadowRadius: 18,
@@ -1215,7 +1122,7 @@ const styles = StyleSheet.create({
   popularButton: {
     position: 'absolute',
     left: theme.spacing.md,
-    top: 62,
+    top: theme.spacing.md,
     zIndex: 6,
     alignSelf: 'center',
     flexDirection: 'row',

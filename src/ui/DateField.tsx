@@ -38,6 +38,8 @@ function WebDateField({
   maximumDate,
   minimumDate,
 }: Props) {
+  const colors = useThemeColors();
+
   return React.createElement('input', {
     type: 'date',
     value: value ? toYMD(value) : '',
@@ -51,12 +53,12 @@ function WebDateField({
       height: 48,
       width: '100%',
       boxSizing: 'border-box',
-      border: `1px solid ${error ? '#DC2626' : '#D1D5DB'}`,
+      border: `1px solid ${error ? '#DC2626' : colors.border}`,
       borderRadius: theme.radius.md,
       padding: `0 ${theme.spacing.md}px`,
       fontSize: theme.fontSize.md,
-      color: '#000000',
-      backgroundColor: '#FFFFFF',
+      color: colors.text,
+      backgroundColor: colors.surface,
       fontFamily: 'inherit',
       outline: 'none',
     },
@@ -109,8 +111,8 @@ function NativeDateField(props: Props) {
         style={[
           styles.trigger,
           {
-            backgroundColor: '#FFFFFF',
-            borderColor: error ? '#DC2626' : '#D1D5DB',
+            backgroundColor: colors.surface,
+            borderColor: error ? '#DC2626' : colors.border,
           },
         ]}
         accessibilityRole="button"
@@ -119,7 +121,7 @@ function NativeDateField(props: Props) {
           style={[
             styles.value,
             {
-              color: value ? '#000000' : '#6B7280',
+              color: value ? colors.text : colors.textMuted,
             },
           ]}
         >
@@ -147,13 +149,27 @@ function NativeDateField(props: Props) {
           onRequestClose={() => setOpen(false)}
         >
           <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
-            <Pressable style={styles.sheet} onPress={() => {}}>
-              <View style={styles.sheetHeader}>
+            <Pressable
+              style={[
+                styles.sheet,
+                { backgroundColor: colors.surface },
+              ]}
+              onPress={() => {}}
+            >
+              <View
+                style={[
+                  styles.sheetHeader,
+                  {
+                    backgroundColor: colors.surface,
+                    borderBottomColor: colors.border,
+                  },
+                ]}
+              >
                 <Pressable onPress={() => setOpen(false)}>
-                  <Text style={styles.cancelButton}>Cancel</Text>
+                  <Text style={[styles.cancelButton, { color: colors.text }]}>Cancel</Text>
                 </Pressable>
 
-                <Text style={styles.sheetTitle}>Select date</Text>
+                <Text style={[styles.sheetTitle, { color: colors.text }]}>Select date</Text>
 
                 <Pressable
                   onPress={() => {
@@ -161,11 +177,11 @@ function NativeDateField(props: Props) {
                     setOpen(false);
                   }}
                 >
-                  <Text style={styles.doneButton}>Done</Text>
+                  <Text style={[styles.doneButton, { color: colors.primary }]}>Done</Text>
                 </Pressable>
               </View>
 
-              <View style={styles.pickerWrapper}>
+              <View style={[styles.pickerWrapper, { backgroundColor: colors.surface }]}>
                 <DateTimePicker
                   value={draft}
                   mode="date"
@@ -174,9 +190,9 @@ function NativeDateField(props: Props) {
                   maximumDate={maximumDate}
                   minimumDate={minimumDate}
                   themeVariant="light"
-                  textColor="#000000"
+                  textColor={colors.text}
                   accentColor={colors.primary}
-                  style={styles.iosPicker}
+                  style={[styles.iosPicker, { backgroundColor: colors.surface }]}
                 />
               </View>
             </Pressable>
@@ -198,7 +214,6 @@ const styles = StyleSheet.create({
 
   value: {
     fontSize: theme.fontSize.md,
-    color: '#000000',
   },
 
   backdrop: {
@@ -208,7 +223,6 @@ const styles = StyleSheet.create({
   },
 
   sheet: {
-    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: theme.radius.lg,
     borderTopRightRadius: theme.radius.lg,
     paddingBottom: theme.spacing.lg,
@@ -222,32 +236,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
   },
 
   sheetTitle: {
-    color: '#000000',
     fontSize: theme.fontSize.md,
     fontWeight: '700',
   },
 
   cancelButton: {
-    color: '#000000',
     fontSize: theme.fontSize.md,
   },
 
   doneButton: {
-    color: '#000000',
     fontSize: theme.fontSize.md,
     fontWeight: '700',
   },
 
   pickerWrapper: {
-    backgroundColor: '#FFFFFF',
   },
 
   iosPicker: {
-    backgroundColor: '#FFFFFF',
   },
 });
