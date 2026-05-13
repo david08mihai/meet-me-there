@@ -15,7 +15,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
+import * as FileSystem from 'expo-file-system/legacy';
+import { decode } from 'base64-arraybuffer';
 import { useAuth } from '../../../src/contexts/AuthContext';
 import { supabase } from '../../../src/lib/supabase';
 import { DateTimeField } from '../../../src/ui/DateTimeField';
@@ -315,6 +316,36 @@ export default function CreateEvent() {
     };
   };
 
+const uploadCoverImage = async () => {
+  if (!coverUri || !user) return null;
+
+  const fileExt = coverUri.split('.').pop()?.toLowerCase() ?? 'jpg';
+  const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+  const filePath = `covers/${fileName}`;
+
+  const base64 = await FileSystem.readAsStringAsync(coverUri, {
+    encoding: 'base64',
+  });
+
+  const contentType =
+    fileExt === 'png' ? 'image/png' : 'image/jpeg';
+
+  const { error: uploadError } = await supabase.storage
+    .from('event-images')
+    .upload(filePath, decode(base64), {
+      contentType,
+      upsert: false,
+    });
+
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage
+    .from('event-images')
+    .getPublicUrl(filePath);
+
+  return data.publicUrl;
+};
+
   const handleSubmit = async () => {
     if (!user) {
       Alert.alert('Error', 'You must be logged in to create an event.');
@@ -335,13 +366,14 @@ export default function CreateEvent() {
     try {
       setSubmitting(true);
 
+      const uploadedCoverUrl = await uploadCoverImage();
       const { data: insertedEvent, error: eventError } = await supabase
         .from('events')
         .insert({
           organizer_user_id: user.id,
           title: title.trim(),
           description: description.trim(),
-          cover_image_url: null,
+          cover_image_url: uploadedCoverUrl,
           start_datetime: result.start.toISOString(),
           end_datetime: result.end.toISOString(),
           location_text: result.location,
@@ -368,12 +400,7 @@ export default function CreateEvent() {
         if (tagsError) throw tagsError;
       }
 
-      Alert.alert(
-        'Event created',
-        coverUri
-          ? 'Your event has been created. Cover upload preview is local only for now.'
-          : 'Your event has been created successfully.'
-      );
+      Alert.alert('Event created', 'Your event has been created successfully.');
 
       router.replace({
         pathname: '/events/[id]',
