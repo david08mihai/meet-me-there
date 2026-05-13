@@ -219,7 +219,7 @@ export default function Profile() {
               await Promise.all([
                 supabase
                   .from('business_profiles')
-                  .select('business_name, logo_url, location_text, rating_avg, cover_url')
+                  .select('business_name, logo_url, location_text, rating_avg')
                   .eq('user_id', user.id)
                   .maybeSingle(),
                 supabase
