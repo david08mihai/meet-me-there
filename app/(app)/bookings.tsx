@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { supabase } from '../../src/lib/supabase';
 import { Select } from '../../src/ui/Select';
-import { theme } from '../../src/ui/theme';
+import { theme, useThemeColors } from '../../src/ui/theme';
 
 type BookingView = 'upcoming' | 'past';
 
@@ -51,6 +51,7 @@ const BOOKING_OPTIONS = [
 export default function Bookings() {
   const router = useRouter();
   const { user } = useAuth();
+  const colors = useThemeColors();
 
   const [view, setView] = useState<BookingView>('upcoming');
   const [events, setEvents] = useState<BookingCardItem[]>([]);
@@ -159,14 +160,14 @@ export default function Bookings() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Text style={styles.title}>See Bookings</Text>
+        <Text style={[styles.title, { color: colors.primary }]}>See Bookings</Text>
         <Pressable
           onPress={() => router.push('/events/create')}
           accessibilityRole="button"
           accessibilityLabel="Create event"
-          style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.addButton, { backgroundColor: colors.primary, shadowColor: colors.primary }, pressed && styles.pressed]}
         >
           <Ionicons name="add" size={24} color="#FFFFFF" />
         </Pressable>
@@ -193,7 +194,7 @@ export default function Bookings() {
         ) : (
           groupedPastEvents.map(([month, groupedEvents]) => (
             <View key={month} style={styles.group}>
-              <Text style={styles.monthTitle}>{month}</Text>
+              <Text style={[styles.monthTitle, { color: colors.text }]}>{month}</Text>
               {groupedEvents.map((event) => (
                 <BookingCard
                   key={event.bookingId}
@@ -219,6 +220,8 @@ function BookingCard({
   onPress: () => void;
   variant?: 'upcoming' | 'past';
 }) {
+  const colors = useThemeColors();
+
   const formattedDate = new Intl.DateTimeFormat('en', {
     weekday: 'short',
     day: 'numeric',
@@ -230,20 +233,28 @@ function BookingCard({
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.card,
+        { backgroundColor: colors.background, borderColor: colors.border },
+        pressed && styles.pressed,
+      ]}
     >
       <View style={styles.cardTopRow}>
-        <Text style={styles.cardDate}>{formattedDate}</Text>
+        <Text style={[styles.cardDate, { color: colors.textMuted }]}>{formattedDate}</Text>
         <View
           style={[
             styles.badge,
-            variant === 'past' ? styles.badgePast : styles.badgeUpcoming,
+            variant === 'past'
+              ? { backgroundColor: colors.surface }
+              : { backgroundColor: '#DCFCE7' },
           ]}
         >
           <Text
             style={[
               styles.badgeText,
-              variant === 'past' ? styles.badgeTextPast : styles.badgeTextUpcoming,
+              variant === 'past'
+                ? { color: colors.textMuted }
+                : { color: '#15803D' },
             ]}
           >
             {variant === 'past' ? 'Past' : 'Upcoming'}
@@ -251,20 +262,20 @@ function BookingCard({
         </View>
       </View>
 
-      <Text style={styles.cardTitle}>{event.title}</Text>
-      <Text style={styles.cardLocation}>{event.locationText}</Text>
+      <Text style={[styles.cardTitle, { color: colors.text }]}>{event.title}</Text>
+      <Text style={[styles.cardLocation, { color: colors.primary }]}>{event.locationText}</Text>
 
-      <Text style={styles.cardDescription} numberOfLines={2}>
+      <Text style={[styles.cardDescription, { color: colors.textMuted }]} numberOfLines={2}>
         {event.description}
       </Text>
 
       <View style={styles.cardBottomRow}>
-        <Text style={styles.cardMeta}>
+        <Text style={[styles.cardMeta, { color: colors.textMuted }]}>
           {event.pricingModel === 'free'
             ? 'Free'
             : `Paid${event.ticketPrice ? ` · ${event.ticketPrice} RON` : ''}`}
         </Text>
-        <Text style={styles.cardMeta}>Status: {event.bookingStatus}</Text>
+        <Text style={[styles.cardMeta, { color: colors.textMuted }]}>Status: {event.bookingStatus}</Text>
       </View>
     </Pressable>
   );
@@ -277,6 +288,8 @@ function EmptyBookings({
   view?: BookingView;
   loading?: boolean;
 }) {
+  const colors = useThemeColors();
+
   return (
     <View style={styles.emptyState}>
       <Ionicons
@@ -288,16 +301,16 @@ function EmptyBookings({
             : 'archive-outline'
         }
         size={32}
-        color={theme.colors.textMuted}
+        color={colors.textMuted}
       />
-      <Text style={styles.emptyTitle}>
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>
         {loading
           ? 'Loading bookings'
           : view === 'upcoming'
           ? 'No upcoming events'
           : 'No past events'}
       </Text>
-      <Text style={styles.emptyText}>
+      <Text style={[styles.emptyText, { color: colors.textMuted }]}>
         {loading
           ? 'Please wait a moment.'
           : view === 'upcoming'
@@ -311,7 +324,6 @@ function EmptyBookings({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: theme.colors.surface,
   },
   header: {
     flexDirection: 'row',
@@ -322,7 +334,6 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.md,
   },
   title: {
-    color: theme.colors.primary,
     fontSize: theme.fontSize.xl,
     fontWeight: '800',
   },
@@ -332,8 +343,6 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.primary,
-    shadowColor: theme.colors.primary,
     shadowOpacity: 0.24,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
@@ -355,16 +364,13 @@ const styles = StyleSheet.create({
     gap: theme.spacing.md,
   },
   monthTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.lg,
     fontWeight: '800',
     marginTop: theme.spacing.sm,
   },
   card: {
-    backgroundColor: '#FFFFFF',
     borderRadius: theme.radius.lg,
     borderWidth: 1,
-    borderColor: theme.colors.border,
     padding: theme.spacing.lg,
     gap: theme.spacing.sm,
   },
@@ -374,7 +380,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cardDate: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
@@ -383,34 +388,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: 4,
   },
-  badgeUpcoming: {
-    backgroundColor: '#DCFCE7',
-  },
-  badgePast: {
-    backgroundColor: '#E5E7EB',
-  },
   badgeText: {
     fontSize: theme.fontSize.xs,
     fontWeight: '800',
   },
-  badgeTextUpcoming: {
-    color: '#15803D',
-  },
-  badgeTextPast: {
-    color: theme.colors.textMuted,
-  },
   cardTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.lg,
     fontWeight: '800',
   },
   cardLocation: {
-    color: theme.colors.primary,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
   cardDescription: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     lineHeight: 20,
   },
@@ -420,7 +410,6 @@ const styles = StyleSheet.create({
     gap: theme.spacing.md,
   },
   cardMeta: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
   },
@@ -431,12 +420,10 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.xxl,
   },
   emptyTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.md,
     fontWeight: '800',
   },
   emptyText: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     textAlign: 'center',
   },

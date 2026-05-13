@@ -8,7 +8,7 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { supabase } from '../../src/lib/supabase';
 import { Input } from '../../src/ui/Input';
 import { ScreenHeader } from '../../src/ui/ScreenHeader';
-import { theme } from '../../src/ui/theme';
+import { theme, useThemeColors } from '../../src/ui/theme';
 
 type SectionKey =
   | 'edit-profile'
@@ -90,9 +90,10 @@ export default function ProfileToolScreen() {
   const params = useLocalSearchParams<{ section?: string }>();
   const section = (firstParam(params.section) ?? 'about') as SectionKey;
   const title = titles[section] ?? 'Profile';
+  const colors = useThemeColors();
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
       <ScreenHeader title={title} onBack={() => router.back()} />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {section === 'edit-profile' ? <EditProfile /> : null}
@@ -109,6 +110,7 @@ export default function ProfileToolScreen() {
 
 function EditProfile() {
   const { user } = useAuth();
+  const colors = useThemeColors();
 
   const [loading, setLoading] = useState(true);
   const [accountType, setAccountType] = useState<AccountType>('personal');
@@ -226,7 +228,7 @@ function EditProfile() {
   }
 
   return (
-    <View style={styles.formCard}>
+    <View style={[styles.formCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
       <Field label={accountType === 'business' ? 'Business Name' : 'Full Name'}>
         <Input value={displayName} onChangeText={setDisplayName} placeholder="Your name" />
       </Field>
@@ -262,6 +264,7 @@ function EditProfile() {
 function CreatedEvents() {
   const { user } = useAuth();
   const router = useRouter();
+  const colors = useThemeColors();
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<EventRow[]>([]);
 
@@ -362,12 +365,12 @@ function CreatedEvents() {
                 params: { id: String(event.event_id) },
               })
             }
-            style={({ pressed }) => [styles.infoCard, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.infoCard, { backgroundColor: colors.background, borderColor: colors.border }, pressed && styles.pressed]}
           >
-            <Text style={styles.cardTitle}>{event.title}</Text>
-            <Text style={styles.cardText}>{formatEventSchedule(event.start_datetime, event.end_datetime)}</Text>
-            <Text style={styles.cardText}>{event.location_text}</Text>
-            <Text style={styles.cardText}>
+            <Text style={[styles.cardTitle, { color: colors.text }]}>{event.title}</Text>
+            <Text style={[styles.cardText, { color: colors.textMuted }]}>{formatEventSchedule(event.start_datetime, event.end_datetime)}</Text>
+            <Text style={[styles.cardText, { color: colors.textMuted }]}>{event.location_text}</Text>
+            <Text style={[styles.cardText, { color: colors.textMuted }]}>
               {event.pricing_model === 'paid' ? `${event.ticket_price ?? 0} RON` : 'Free'}
             </Text>
           </Pressable>
@@ -376,8 +379,8 @@ function CreatedEvents() {
             onPress={() => handleDelete(event)}
             style={({ pressed }) => [styles.destructiveInline, pressed && styles.pressed]}
           >
-            <Ionicons name="trash-outline" size={17} color={theme.colors.error} />
-            <Text style={styles.destructiveInlineText}>Delete event</Text>
+            <Ionicons name="trash-outline" size={17} color={colors.error} />
+            <Text style={[styles.destructiveInlineText, { color: colors.error }]}>Delete event</Text>
           </Pressable>
         </View>
       ))}
@@ -387,6 +390,7 @@ function CreatedEvents() {
 
 function Reviews() {
   const { user } = useAuth();
+  const colors = useThemeColors();
   const [loading, setLoading] = useState(true);
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
 
@@ -484,10 +488,10 @@ function Reviews() {
   return (
     <View style={styles.listStack}>
       {reviews.map((review) => (
-        <View key={review.review_id} style={styles.infoCard}>
+        <View key={review.review_id} style={[styles.infoCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
           <Stars value={review.stars} />
-          <Text style={styles.cardText}>{review.comment || 'No written review.'}</Text>
-          <Text style={styles.cardText}>
+          <Text style={[styles.cardText, { color: colors.textMuted }]}>{review.comment || 'No written review.'}</Text>
+          <Text style={[styles.cardText, { color: colors.textMuted }]}>
             {new Intl.DateTimeFormat('en', {
               day: 'numeric',
               month: 'short',
@@ -502,6 +506,7 @@ function Reviews() {
 
 function Stats() {
   const { user } = useAuth();
+  const colors = useThemeColors();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<StatsData>({
     created: 0,
@@ -652,10 +657,10 @@ function Stats() {
   return (
     <View style={styles.statsGrid}>
       {rows.map((row) => (
-        <View key={row.label} style={styles.statCard}>
-          <Ionicons name={row.icon} size={22} color={theme.colors.primary} />
-          <Text style={styles.statValue}>{row.value}</Text>
-          <Text style={styles.statLabel}>{row.label}</Text>
+        <View key={row.label} style={[styles.statCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+          <Ionicons name={row.icon} size={22} color={colors.primary} />
+          <Text style={[styles.statValue, { color: colors.text }]}>{row.value}</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted }]}>{row.label}</Text>
         </View>
       ))}
     </View>
@@ -664,6 +669,7 @@ function Stats() {
 
 function Achievements() {
   const { user } = useAuth();
+  const colors = useThemeColors();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<StatsData>({
     created: 0,
@@ -780,26 +786,31 @@ function Achievements() {
       {achievements.map((achievement) => (
         <View
           key={achievement.title}
-          style={[styles.infoCard, achievement.unlocked && styles.unlockedCard]}
+          style={[
+            styles.infoCard,
+            { backgroundColor: colors.background, borderColor: colors.border },
+            achievement.unlocked && { borderColor: colors.primary, backgroundColor: colors.surface },
+          ]}
         >
           <Ionicons
             name={achievement.unlocked ? 'ribbon' : 'ribbon-outline'}
             size={24}
-            color={achievement.unlocked ? theme.colors.primary : theme.colors.textMuted}
+            color={achievement.unlocked ? colors.primary : colors.textMuted}
           />
-          <Text style={styles.cardTitle}>{achievement.title}</Text>
-          <Text style={styles.cardText}>{achievement.text}</Text>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>{achievement.title}</Text>
+          <Text style={[styles.cardText, { color: colors.textMuted }]}>{achievement.text}</Text>
         </View>
       ))}
     </View>
   );
 }
 function About() {
+  const colors = useThemeColors();
   return (
-    <View style={styles.infoCard}>
-      <Text style={styles.cardTitle}>Meet Me There</Text>
+    <View style={[styles.infoCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+      <Text style={[styles.cardTitle, { color: colors.text }]}>Meet Me There</Text>
 
-      <Text style={styles.cardText}>
+      <Text style={[styles.cardText, { color: colors.textMuted }]}>
         Meet Me There is a social event discovery platform designed to help people
         find exciting activities happening nearby and connect with others through
         shared real-life experiences. Whether you are looking for casual meetups,
@@ -808,7 +819,7 @@ function About() {
         with just a few taps.
       </Text>
 
-      <Text style={styles.cardText}>
+      <Text style={[styles.cardText, { color: colors.textMuted }]}>
         Users can not only explore and join existing events, but also create and
         organize their own events, building
         communities around shared interests. The platform encourages meaningful
@@ -816,7 +827,7 @@ function About() {
         to discover.
       </Text>
 
-      <Text style={styles.cardText}>
+      <Text style={[styles.cardText, { color: colors.textMuted }]}>
         To create a safer and more trustworthy environment, Meet Me There includes
         a trust score system based on attendance, participation history, and user
         feedback. This helps users make informed decisions about who they interact
@@ -827,13 +838,14 @@ function About() {
 }
 
 function Privacy() {
+  const colors = useThemeColors();
   return (
-    <View style={styles.infoCard}>
-      <Text style={styles.cardTitle}>Privacy Policy</Text>
-      <Text style={styles.cardText}>
+    <View style={[styles.infoCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+      <Text style={[styles.cardTitle, { color: colors.text }]}>Privacy Policy</Text>
+      <Text style={[styles.cardText, { color: colors.textMuted }]}>
         Your account, profile, bookings, reviews, payments, and event data are stored in the configured Supabase project.
       </Text>
-      <Text style={styles.cardText}>
+      <Text style={[styles.cardText, { color: colors.textMuted }]}>
         Access to records is controlled through authentication and row level security policies.
       </Text>
     </View>
@@ -841,9 +853,10 @@ function Privacy() {
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const colors = useThemeColors();
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      <Text style={[styles.fieldLabel, { color: colors.text }]}>{label}</Text>
       {children}
     </View>
   );
@@ -858,10 +871,11 @@ function PrimaryAction({
   icon: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
 }) {
+  const colors = useThemeColors();
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.primaryAction, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.primaryAction, { backgroundColor: colors.primary }, pressed && styles.pressed]}
     >
       <Ionicons name={icon} size={18} color="#FFFFFF" />
       <Text style={styles.primaryActionText}>{label}</Text>
@@ -878,11 +892,12 @@ function EmptyState({
   title: string;
   text: string;
 }) {
+  const colors = useThemeColors();
   return (
     <View style={styles.emptyState}>
-      <Ionicons name={icon} size={32} color={theme.colors.textMuted} />
-      <Text style={styles.emptyTitle}>{title}</Text>
-      <Text style={styles.emptyText}>{text}</Text>
+      <Ionicons name={icon} size={32} color={colors.textMuted} />
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>{title}</Text>
+      <Text style={[styles.emptyText, { color: colors.textMuted }]}>{text}</Text>
     </View>
   );
 }
@@ -905,7 +920,6 @@ function Stars({ value }: { value: number }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: theme.colors.surface,
   },
   content: {
     paddingHorizontal: theme.spacing.lg,
@@ -918,8 +932,6 @@ const styles = StyleSheet.create({
   formCard: {
     borderRadius: theme.radius.lg,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: '#FFFFFF',
     padding: theme.spacing.lg,
     gap: theme.spacing.md,
   },
@@ -927,7 +939,6 @@ const styles = StyleSheet.create({
     gap: theme.spacing.xs,
   },
   fieldLabel: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontWeight: '800',
   },
@@ -942,7 +953,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: theme.spacing.sm,
-    backgroundColor: theme.colors.primary,
     marginTop: theme.spacing.sm,
   },
   primaryActionText: {
@@ -962,29 +972,21 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.sm,
   },
   destructiveInlineText: {
-    color: theme.colors.error,
     fontSize: theme.fontSize.sm,
     fontWeight: '800',
   },
   infoCard: {
     borderRadius: theme.radius.lg,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: '#FFFFFF',
     padding: theme.spacing.lg,
     gap: theme.spacing.sm,
   },
-  unlockedCard: {
-    borderColor: theme.colors.primary,
-    backgroundColor: '#EEF0FF',
-  },
+  unlockedCard: {},
   cardTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.lg,
     fontWeight: '900',
   },
   cardText: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.md,
     lineHeight: 22,
   },
@@ -998,19 +1000,15 @@ const styles = StyleSheet.create({
     minHeight: 128,
     borderRadius: theme.radius.lg,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: '#FFFFFF',
     padding: theme.spacing.lg,
     justifyContent: 'center',
     gap: theme.spacing.xs,
   },
   statValue: {
-    color: theme.colors.text,
     fontSize: 30,
     fontWeight: '900',
   },
   statLabel: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: '800',
   },
@@ -1021,12 +1019,10 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.xxl,
   },
   emptyTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.md,
     fontWeight: '900',
   },
   emptyText: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     textAlign: 'center',
   },

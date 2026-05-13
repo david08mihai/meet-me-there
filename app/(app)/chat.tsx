@@ -18,7 +18,7 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { supabase } from '../../src/lib/supabase';
 import { Input } from '../../src/ui/Input';
 import { ScreenHeader } from '../../src/ui/ScreenHeader';
-import { theme } from '../../src/ui/theme';
+import { theme, useThemeColors } from '../../src/ui/theme';
 
 type EventRow = {
   event_id: number;
@@ -67,6 +67,7 @@ type DisplayMessage = {
 export default function Chat() {
   const router = useRouter();
   const { user } = useAuth();
+  const colors = useThemeColors();
 
   const params = useLocalSearchParams<{ eventId?: string }>();
   const rawEventId = Array.isArray(params.eventId) ? params.eventId[0] : params.eventId;
@@ -346,12 +347,12 @@ export default function Chat() {
 
   if (!validEventId) {
     return (
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
         <ScreenHeader title="Event Chat" onBack={() => router.back()} />
         <View style={styles.emptyState}>
-          <Ionicons name="chatbubbles-outline" size={32} color={theme.colors.textMuted} />
-          <Text style={styles.emptyTitle}>Chat unavailable</Text>
-          <Text style={styles.emptyText}>Invalid event id.</Text>
+          <Ionicons name="chatbubbles-outline" size={32} color={colors.textMuted} />
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>Chat unavailable</Text>
+          <Text style={[styles.emptyText, { color: colors.textMuted }]}>Invalid event id.</Text>
         </View>
       </SafeAreaView>
     );
@@ -359,10 +360,10 @@ export default function Chat() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
         <ScreenHeader title="Event Chat" onBack={() => router.back()} />
         <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>Loading chat...</Text>
+          <Text style={[styles.emptyText, { color: colors.textMuted }]}>Loading chat...</Text>
         </View>
       </SafeAreaView>
     );
@@ -370,35 +371,35 @@ export default function Chat() {
 
   if (!event || !chat) {
     return (
-      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
         <ScreenHeader title="Event Chat" onBack={() => router.back()} />
         <View style={styles.emptyState}>
-          <Ionicons name="chatbubbles-outline" size={32} color={theme.colors.textMuted} />
-          <Text style={styles.emptyTitle}>Chat unavailable</Text>
-          <Text style={styles.emptyText}>The selected event chat could not be found.</Text>
+          <Ionicons name="chatbubbles-outline" size={32} color={colors.textMuted} />
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>Chat unavailable</Text>
+          <Text style={[styles.emptyText, { color: colors.textMuted }]}>The selected event chat could not be found.</Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
       <ScreenHeader title="Event Chat" onBack={() => router.back()} />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}
       >
-        <View style={styles.chatHeader}>
-          <Text style={styles.eventTitle} numberOfLines={1}>
+        <View style={[styles.chatHeader, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.eventTitle, { color: colors.text }]} numberOfLines={1}>
             {event.title}
           </Text>
-          <Text style={styles.onlineText}>Live event chat</Text>
+          <Text style={[styles.onlineText, { color: colors.success }]}>Live event chat</Text>
         </View>
 
         <ScrollView contentContainerStyle={styles.messages} showsVerticalScrollIndicator={false}>
-          <View style={styles.dateSeparator}>
-            <Text style={styles.dateSeparatorText}>TODAY</Text>
+          <View style={[styles.dateSeparator, { backgroundColor: colors.border }]}>
+            <Text style={[styles.dateSeparatorText, { color: colors.textMuted }]}>TODAY</Text>
           </View>
 
           {messages.map((message) => (
@@ -410,14 +411,14 @@ export default function Chat() {
           ))}
         </ScrollView>
 
-        <View style={styles.inputBar}>
+        <View style={[styles.inputBar, { borderTopColor: colors.border, backgroundColor: colors.background }]}>
           <Pressable
             onPress={() => setDraft((value) => `${value}🙂 `)}
             accessibilityRole="button"
             accessibilityLabel="Insert emoji"
-            style={({ pressed }) => [styles.inputIconButton, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.inputIconButton, { backgroundColor: colors.surface }, pressed && styles.pressed]}
           >
-            <Ionicons name="happy-outline" size={22} color={theme.colors.primary} />
+            <Ionicons name="happy-outline" size={22} color={colors.primary} />
           </Pressable>
 
           <View style={styles.inputWrap}>
@@ -435,6 +436,7 @@ export default function Chat() {
             accessibilityLabel="Send message"
             style={({ pressed }) => [
               styles.sendButton,
+              { backgroundColor: colors.primary },
               pressed && styles.pressed,
               sending && styles.disabled,
             ]}
@@ -455,6 +457,7 @@ function MessageBubble({
   onLongPress: () => void;
 }) {
   const outgoing = message.isCurrentUser;
+  const colors = useThemeColors();
 
   return (
     <Pressable
@@ -469,18 +472,23 @@ function MessageBubble({
         message.senderAvatar ? (
           <Image source={{ uri: message.senderAvatar }} style={styles.messageAvatar} />
         ) : (
-          <View style={[styles.messageAvatar, styles.messageAvatarFallback]}>
-            <Text style={styles.messageAvatarFallbackText}>
+          <View style={[styles.messageAvatar, { backgroundColor: colors.border }]}>
+            <Text style={[styles.messageAvatarFallbackText, { color: colors.text }]}>
               {message.senderName.slice(0, 1).toUpperCase()}
             </Text>
           </View>
         )
       ) : null}
 
-      <View style={[styles.bubble, outgoing ? styles.outgoingBubble : styles.incomingBubble]}>
+      <View style={[
+        styles.bubble,
+        outgoing
+          ? [styles.outgoingBubble, { backgroundColor: colors.primary }]
+          : [styles.incomingBubble, { backgroundColor: colors.background, borderColor: colors.border }],
+      ]}>
         {!outgoing ? (
           <View style={styles.senderRow}>
-            <Text style={styles.senderName}>{message.senderName}</Text>
+            <Text style={[styles.senderName, { color: colors.text }]}>{message.senderName}</Text>
             {message.isOrganizer ? (
               <View style={styles.organizerBadge}>
                 <Text style={styles.organizerBadgeText}>Organizer</Text>
@@ -490,14 +498,14 @@ function MessageBubble({
         ) : null}
 
         {message.isDeleted ? (
-          <Text style={styles.deletedText}>This message was deleted</Text>
+          <Text style={[styles.deletedText, { color: colors.textMuted }]}>This message was deleted</Text>
         ) : (
-          <Text style={[styles.messageText, outgoing && styles.outgoingText]}>
+          <Text style={[styles.messageText, { color: outgoing ? '#FFFFFF' : colors.text }]}>
             {message.text}
           </Text>
         )}
 
-        <Text style={[styles.messageTime, outgoing && styles.outgoingTime]}>
+        <Text style={[styles.messageTime, { color: outgoing ? 'rgba(255,255,255,0.8)' : colors.textMuted }]}>
           {new Intl.DateTimeFormat('en', {
             hour: 'numeric',
             minute: '2-digit',
@@ -511,7 +519,6 @@ function MessageBubble({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: theme.colors.surface,
   },
   flex: {
     flex: 1,
@@ -522,15 +529,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.lg,
     paddingBottom: theme.spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
   },
   eventTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.lg,
     fontWeight: '900',
   },
   onlineText: {
-    color: theme.colors.success,
     fontSize: theme.fontSize.sm,
     fontWeight: '800',
   },
@@ -543,12 +547,10 @@ const styles = StyleSheet.create({
   dateSeparator: {
     alignSelf: 'center',
     borderRadius: theme.radius.full,
-    backgroundColor: '#E5E7EB',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: 5,
   },
   dateSeparatorText: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.xs,
     fontWeight: '900',
   },
@@ -567,15 +569,10 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: theme.colors.border,
-  },
-  messageAvatarFallback: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#E5E7EB',
   },
   messageAvatarFallbackText: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.sm,
     fontWeight: '800',
   },
@@ -586,13 +583,10 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   incomingBubble: {
-    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 4,
     borderWidth: 1,
-    borderColor: theme.colors.border,
   },
   outgoingBubble: {
-    backgroundColor: theme.colors.primary,
     borderTopRightRadius: 4,
   },
   senderRow: {
@@ -601,7 +595,6 @@ const styles = StyleSheet.create({
     gap: theme.spacing.xs,
   },
   senderName: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.xs,
     fontWeight: '900',
   },
@@ -617,26 +610,19 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   messageText: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.md,
     lineHeight: 22,
   },
-  outgoingText: {
-    color: '#FFFFFF',
-  },
+  outgoingText: {},
   deletedText: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     fontStyle: 'italic',
   },
   messageTime: {
-    color: theme.colors.textMuted,
     fontSize: 11,
     fontWeight: '700',
   },
-  outgoingTime: {
-    color: 'rgba(255,255,255,0.8)',
-  },
+  outgoingTime: {},
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -645,8 +631,6 @@ const styles = StyleSheet.create({
     paddingTop: theme.spacing.sm,
     paddingBottom: theme.spacing.lg,
     borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-    backgroundColor: '#FFFFFF',
   },
   inputWrap: {
     flex: 1,
@@ -657,7 +641,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EEF0FF',
   },
   sendButton: {
     width: 42,
@@ -665,7 +648,6 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.primary,
   },
   emptyState: {
     flex: 1,
@@ -675,12 +657,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.xl,
   },
   emptyTitle: {
-    color: theme.colors.text,
     fontSize: theme.fontSize.md,
     fontWeight: '800',
   },
   emptyText: {
-    color: theme.colors.textMuted,
     fontSize: theme.fontSize.sm,
     textAlign: 'center',
   },

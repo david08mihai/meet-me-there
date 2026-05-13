@@ -323,7 +323,7 @@ export default function ReviewPurchase() {
           showsVerticalScrollIndicator={false}
         >
           {banner ? (
-            <View style={styles.errorBanner}>
+            <View style={[styles.errorBanner, { borderColor: colors.error }]}>
               <Ionicons name="alert-circle-outline" size={18} color={colors.error} />
               <Text style={[styles.errorBannerText, { color: colors.error }]}>{banner}</Text>
             </View>
@@ -464,6 +464,7 @@ export default function ReviewPurchase() {
             accessibilityRole="button"
             style={({ pressed }) => [
               styles.payButton,
+              { backgroundColor: colors.primary, shadowColor: colors.primary },
               pressed && styles.pressed,
               processing && styles.disabled,
             ]}
@@ -475,11 +476,11 @@ export default function ReviewPurchase() {
 
           <Text style={[styles.termsText, { color: colors.textMuted }]}>
             By clicking "Pay Now", you agree to our{' '}
-            <Text style={styles.linkText} onPress={() => Alert.alert('Terms of Service')}>
+            <Text style={[styles.linkText, { color: colors.primary }]} onPress={() => Alert.alert('Terms of Service')}>
               Terms of Service
             </Text>{' '}
             and acknowledge our{' '}
-            <Text style={styles.linkText} onPress={() => Alert.alert('Refund Policy')}>
+            <Text style={[styles.linkText, { color: colors.primary }]} onPress={() => Alert.alert('Refund Policy')}>
               Refund Policy
             </Text>
             .
@@ -512,6 +513,7 @@ function PaymentOption({
       accessibilityState={{ checked: active }}
       style={({ pressed }) => [
         styles.paymentOption,
+        { borderColor: active ? colors.primary : colors.border },
         active && styles.paymentOptionActive,
         pressed && styles.pressed,
       ]}
@@ -523,8 +525,8 @@ function PaymentOption({
         <Text style={[styles.paymentTitle, { color: colors.text }]}>{title}</Text>
         <Text style={[styles.paymentSubtitle, { color: colors.textMuted }]}>{subtitle}</Text>
       </View>
-      <View style={[styles.radio, active && styles.radioActive]}>
-        {active ? <View style={styles.radioDot} /> : null}
+      <View style={[styles.radio, { borderColor: active ? colors.primary : colors.border }, active && styles.radioActive]}>
+        {active ? <View style={[styles.radioDot, { backgroundColor: colors.primary }]} /> : null}
       </View>
     </Pressable>
   );
@@ -553,7 +555,6 @@ function Field({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: theme.colors.surface,
   },
   flex: {
     flex: 1,
@@ -569,7 +570,6 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
     borderRadius: theme.radius.lg,
     borderWidth: 1,
-    borderColor: theme.colors.error,
     backgroundColor: '#3B1B21',
     padding: theme.spacing.md,
   },
@@ -631,12 +631,9 @@ const styles = StyleSheet.create({
     gap: theme.spacing.md,
     borderRadius: theme.radius.lg,
     borderWidth: 1,
-    borderColor: theme.colors.border,
     padding: theme.spacing.md,
   },
-  paymentOptionActive: {
-    borderColor: theme.colors.primary,
-  },
+  paymentOptionActive: {},
   paymentIcon: {
     width: 42,
     height: 42,
@@ -660,18 +657,14 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 11,
     borderWidth: 2,
-    borderColor: theme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  radioActive: {
-    borderColor: theme.colors.primary,
-  },
+  radioActive: {},
   radioDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: theme.colors.primary,
   },
   field: {
     gap: theme.spacing.xs,
@@ -692,8 +685,6 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.primary,
-    shadowColor: theme.colors.primary,
     shadowOpacity: 0.25,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 5 },
@@ -711,7 +702,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
   },
   linkText: {
-    color: theme.colors.primary,
     fontWeight: '800',
   },
   error: {
