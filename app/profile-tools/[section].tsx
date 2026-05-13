@@ -794,17 +794,33 @@ function Achievements() {
     </View>
   );
 }
-
 function About() {
   return (
     <View style={styles.infoCard}>
       <Text style={styles.cardTitle}>Meet Me There</Text>
+
       <Text style={styles.cardText}>
-        Meet Me There helps people discover nearby events, join activities, chat with
-        participants, and build trust through attendance and reviews.
+        Meet Me There is a social event discovery platform designed to help people
+        find exciting activities happening nearby and connect with others through
+        shared real-life experiences. Whether you are looking for casual meetups,
+        sports activities, cultural events, workshops, or social gatherings,
+        the app makes it easy to discover what is happening around you and join
+        with just a few taps.
       </Text>
+
       <Text style={styles.cardText}>
-        This version uses Supabase for authentication, profiles, events, bookings, payments, and chat.
+        Users can not only explore and join existing events, but also create and
+        organize their own events, building
+        communities around shared interests. The platform encourages meaningful
+        social interaction by making local experiences more accessible and easier
+        to discover.
+      </Text>
+
+      <Text style={styles.cardText}>
+        To create a safer and more trustworthy environment, Meet Me There includes
+        a trust score system based on attendance, participation history, and user
+        feedback. This helps users make informed decisions about who they interact
+        with and creates a more secure experience when meeting new people.
       </Text>
     </View>
   );

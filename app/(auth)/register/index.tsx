@@ -1,5 +1,5 @@
 import { Link, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useAuth } from '../../../src/contexts/AuthContext';
@@ -23,6 +23,7 @@ import {
   validateUrl,
 } from '../../../src/lib/validation';
 import { Button } from '../../../src/ui/Button';
+import { DateField } from '../../../src/ui/DateField';
 import { ErrorBanner } from '../../../src/ui/ErrorBanner';
 import { FormField } from '../../../src/ui/FormField';
 import { Input } from '../../../src/ui/Input';
@@ -31,13 +32,20 @@ import { theme, useThemeColors } from '../../../src/ui/theme';
 
 type AccountType = 'personal' | 'business';
 
+function toYMD(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 type PersonalForm = {
   email: string;
   password: string;
   confirmPassword: string;
   name: string;
   phone: string;
-  dateOfBirth: string;
+  dateOfBirth: Date | null;
   gender: string;
   acceptTerms: boolean;
 };
@@ -65,7 +73,7 @@ const emptyPersonal: PersonalForm = {
   confirmPassword: '',
   name: '',
   phone: '',
-  dateOfBirth: '',
+  dateOfBirth: null,
   gender: '',
   acceptTerms: false,
 };
@@ -88,6 +96,9 @@ export default function RegisterAccountType() {
   const router = useRouter();
   const { setLocalSession } = useAuth();
   const colors = useThemeColors();
+
+  const personalEmailRef = useRef<TextInput>(null);
+  const businessEmailRef = useRef<TextInput>(null);
 
   const [accountType, setAccountType] = useState<AccountType>('personal');
   const [personal, setPersonal] = useState<PersonalForm>(emptyPersonal);
@@ -115,14 +126,14 @@ export default function RegisterAccountType() {
       validateConfirmPassword(personal.confirmPassword, personal.password) ?? undefined;
     errors.name = validatePersonName(personal.name, 'Name is required') ?? undefined;
     errors.phone = validatePhone(personal.phone) ?? undefined;
-    const parsedDate = personal.dateOfBirth.trim() ? new Date(personal.dateOfBirth.trim()) : null;
-    errors.dateOfBirth = validateDateOfBirth(parsedDate) ?? undefined;
+    errors.dateOfBirth = validateDateOfBirth(personal.dateOfBirth) ?? undefined;
     errors.gender = personal.gender ? undefined : 'Gender is required';
     errors.acceptTerms = validateAcceptedTerms(personal.acceptTerms) ?? undefined;
 
     const compact = Object.fromEntries(
       Object.entries(errors).filter(([, value]) => Boolean(value)),
     ) as PersonalErrors;
+
     setPersonalErrors(compact);
     return Object.keys(compact).length === 0;
   };
@@ -149,6 +160,7 @@ export default function RegisterAccountType() {
     const compact = Object.fromEntries(
       Object.entries(errors).filter(([, value]) => Boolean(value)),
     ) as BusinessErrors;
+
     setBusinessErrors(compact);
     return Object.keys(compact).length === 0;
   };
@@ -187,6 +199,7 @@ export default function RegisterAccountType() {
 
       if (accountType === 'personal') {
         const email = personal.email.trim().toLowerCase();
+
         const { data, error } = await supabase.auth.signUp({
           email,
           password: personal.password,
@@ -203,6 +216,7 @@ export default function RegisterAccountType() {
           role: 'user',
           account_status: 'active',
         });
+
         if (userInsertError) throw userInsertError;
 
         const { error: personalInsertError } = await supabase
@@ -210,13 +224,15 @@ export default function RegisterAccountType() {
           .insert({
             user_id: data.user.id,
             full_name: personal.name.trim(),
-            date_of_birth: personal.dateOfBirth.trim(),
+            date_of_birth: personal.dateOfBirth ? toYMD(personal.dateOfBirth) : null,
             gender: personal.gender,
             photo_url: null,
           });
+
         if (personalInsertError) throw personalInsertError;
       } else {
         const email = business.businessEmail.trim().toLowerCase();
+
         const { data, error } = await supabase.auth.signUp({
           email,
           password: business.password,
@@ -233,6 +249,7 @@ export default function RegisterAccountType() {
           role: 'user',
           account_status: 'active',
         });
+
         if (userInsertError) throw userInsertError;
 
         const { error: businessInsertError } = await supabase
@@ -248,12 +265,34 @@ export default function RegisterAccountType() {
             website: business.website.trim() || null,
             social_media_link: business.socialMedia.trim() || null,
           });
+
         if (businessInsertError) throw businessInsertError;
       }
 
       setNotice('Account created. Please check your email to confirm your account.');
       router.replace('/verify-email');
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      const isEmailExists =
+        errorMessage.toLowerCase().includes('already registered') ||
+        errorMessage.toLowerCase().includes('user_already_exists') ||
+        errorMessage.toLowerCase().includes('email already in use');
+
+      if (isEmailExists) {
+        const emailError = 'An account with this email already exists';
+
+        if (accountType === 'personal') {
+          setPersonalErrors((prev) => ({ ...prev, email: emailError }));
+          personalEmailRef.current?.focus();
+        } else {
+          setBusinessErrors((prev) => ({ ...prev, businessEmail: emailError }));
+          businessEmailRef.current?.focus();
+        }
+
+        return;
+      }
+
       if (isAuthNetworkError(error)) {
         try {
           await createLocalFallbackAccount();
@@ -278,13 +317,19 @@ export default function RegisterAccountType() {
     }
   };
 
-  const updatePersonal = <Key extends keyof PersonalForm>(key: Key, value: PersonalForm[Key]) => {
+  const updatePersonal = <Key extends keyof PersonalForm>(
+    key: Key,
+    value: PersonalForm[Key],
+  ) => {
     setPersonal((prev) => ({ ...prev, [key]: value }));
     setPersonalErrors((prev) => ({ ...prev, [key]: undefined }));
     setErrorMessage(null);
   };
 
-  const updateBusiness = <Key extends keyof BusinessForm>(key: Key, value: BusinessForm[Key]) => {
+  const updateBusiness = <Key extends keyof BusinessForm>(
+    key: Key,
+    value: BusinessForm[Key],
+  ) => {
     setBusiness((prev) => ({ ...prev, [key]: value }));
     setBusinessErrors((prev) => ({ ...prev, [key]: undefined }));
     setErrorMessage(null);
@@ -312,6 +357,7 @@ export default function RegisterAccountType() {
               colors={colors}
               onPress={() => setAccountType('personal')}
             />
+
             <AccountTypeButton
               label="Business Account"
               selected={accountType === 'business'}
@@ -331,6 +377,7 @@ export default function RegisterAccountType() {
 
             <FormField label="Email" required error={personalErrors.email}>
               <Input
+                ref={personalEmailRef}
                 value={personal.email}
                 onChangeText={(value) => updatePersonal('email', value)}
                 placeholder="Enter your email"
@@ -353,11 +400,7 @@ export default function RegisterAccountType() {
               />
             </FormField>
 
-            <FormField
-              label="Confirm Password"
-              required
-              error={personalErrors.confirmPassword}
-            >
+            <FormField label="Confirm Password" required error={personalErrors.confirmPassword}>
               <Input
                 value={personal.confirmPassword}
                 onChangeText={(value) => updatePersonal('confirmPassword', value)}
@@ -388,36 +431,31 @@ export default function RegisterAccountType() {
               />
             </FormField>
 
-            <FormField
-              label="Date of Birth"
-              required
-              error={personalErrors.dateOfBirth}
-            >
-              <Input
-                value={personal.dateOfBirth}
-                onChangeText={(value) => updatePersonal('dateOfBirth', value)}
-                placeholder="YYYY-MM-DD"
-                error={personalErrors.dateOfBirth}
-              />
-            </FormField>
-
-            <FormField label="Gender" required error={personalErrors.gender}>
-              <View style={styles.genderList}>
-                {[
-                  { label: 'Female', value: 'female' },
-                  { label: 'Male', value: 'male' },
-                  { label: 'Other', value: 'other' },
-                  { label: 'Prefer not to say', value: 'prefer_not_to_say' },
-                ].map((option) => (
-                  <RadioRow
-                    key={option.value}
-                    label={option.label}
-                    selected={personal.gender === option.value}
-                    onPress={() => updatePersonal('gender', option.value)}
+            <View style={styles.dateGenderRow}>
+              <View style={styles.dateColumn}>
+                <FormField
+                  label="Date of Birth"
+                  required
+                  error={personalErrors.dateOfBirth}
+                >
+                  <DateField
+                    value={personal.dateOfBirth}
+                    onChange={(date) => updatePersonal('dateOfBirth', date)}
+                    error={personalErrors.dateOfBirth}
                   />
-                ))}
+                </FormField>
               </View>
-            </FormField>
+
+              <View style={styles.genderColumn}>
+                <FormField label="Gender" required error={personalErrors.gender}>
+                  <GenderDropdown
+                    value={personal.gender}
+                    onChange={(value) => updatePersonal('gender', value)}
+                    error={personalErrors.gender}
+                  />
+                </FormField>
+              </View>
+            </View>
 
             <TermsCheckbox
               checked={personal.acceptTerms}
@@ -431,11 +469,7 @@ export default function RegisterAccountType() {
               <UploadBox title="Upload business logo" />
             </FormField>
 
-            <FormField
-              label="Business Name"
-              required
-              error={businessErrors.businessName}
-            >
+            <FormField label="Business Name" required error={businessErrors.businessName}>
               <Input
                 value={business.businessName}
                 onChangeText={(value) => updateBusiness('businessName', value)}
@@ -467,16 +501,18 @@ export default function RegisterAccountType() {
                 textAlignVertical="top"
                 style={[
                   styles.textArea,
-                  { backgroundColor: colors.background, color: colors.text, borderColor: businessErrors.shortDescription ? colors.error : colors.border },
+                  {
+                    backgroundColor: colors.background,
+                    color: colors.text,
+                    borderColor: businessErrors.shortDescription
+                      ? colors.error
+                      : colors.border,
+                  },
                 ]}
               />
             </FormField>
 
-            <FormField
-              label="Contact Person"
-              required
-              error={businessErrors.contactPerson}
-            >
+            <FormField label="Contact Person" required error={businessErrors.contactPerson}>
               <Input
                 value={business.contactPerson}
                 onChangeText={(value) => updateBusiness('contactPerson', value)}
@@ -495,12 +531,9 @@ export default function RegisterAccountType() {
               />
             </FormField>
 
-            <FormField
-              label="Business Email"
-              required
-              error={businessErrors.businessEmail}
-            >
+            <FormField label="Business Email" required error={businessErrors.businessEmail}>
               <Input
+                ref={businessEmailRef}
                 value={business.businessEmail}
                 onChangeText={(value) => updateBusiness('businessEmail', value)}
                 placeholder="Enter business email"
@@ -580,7 +613,10 @@ export default function RegisterAccountType() {
         />
 
         <View style={styles.footer}>
-          <Text style={[styles.footerText, { color: colors.textMuted }]}>Already have an account?</Text>
+          <Text style={[styles.footerText, { color: colors.textMuted }]}>
+            Already have an account?
+          </Text>
+
           <Link href="/login" asChild>
             <Pressable>
               <Text style={[styles.footerLink, { color: colors.primary }]}>Log in</Text>
@@ -589,6 +625,91 @@ export default function RegisterAccountType() {
         </View>
       </View>
     </Screen>
+  );
+}
+
+function GenderDropdown({
+  value,
+  onChange,
+  error,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  error?: string;
+}) {
+  const colors = useThemeColors();
+  const [open, setOpen] = useState(false);
+
+  const options = [
+    { label: 'Female', value: 'female' },
+    { label: 'Male', value: 'male' },
+    { label: 'Other', value: 'other' },
+    { label: 'Prefer not', value: 'prefer_not_to_say' },
+  ];
+
+  const selectedLabel =
+    options.find((option) => option.value === value)?.label ?? 'Select';
+
+  return (
+    <View style={styles.dropdownWrapper}>
+      <Pressable
+        onPress={() => setOpen((prev) => !prev)}
+        style={[
+          styles.dropdownTrigger,
+          {
+            backgroundColor: colors.background,
+            borderColor: error ? colors.error : colors.border,
+          },
+        ]}
+      >
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.dropdownText,
+            { color: value ? colors.text : colors.textMuted },
+          ]}
+        >
+          {selectedLabel}
+        </Text>
+
+        <Text style={[styles.dropdownArrow, { color: colors.text }]}>⌄</Text>
+      </Pressable>
+
+      {open ? (
+        <View
+          style={[
+            styles.dropdownMenu,
+            {
+              backgroundColor: colors.background,
+              borderColor: colors.border,
+            },
+          ]}
+        >
+          {options.map((option) => (
+            <Pressable
+              key={option.value}
+              onPress={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+              style={styles.dropdownOption}
+            >
+              <Text
+                style={[
+                  styles.dropdownOptionText,
+                  {
+                    color: value === option.value ? colors.primary : colors.text,
+                    fontWeight: value === option.value ? '700' : '500',
+                  },
+                ]}
+              >
+                {option.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -615,7 +736,13 @@ function AccountTypeButton({
         pressed && styles.pressed,
       ]}
     >
-      <Text style={[styles.accountTypeText, { color: selected ? '#fff' : colors.text }, selected && styles.accountTypeTextSelected]}>
+      <Text
+        style={[
+          styles.accountTypeText,
+          { color: selected ? '#fff' : colors.text },
+          selected && styles.accountTypeTextSelected,
+        ]}
+      >
         {label}
       </Text>
     </Pressable>
@@ -624,30 +751,22 @@ function AccountTypeButton({
 
 function UploadBox({ title }: { title: string }) {
   const colors = useThemeColors();
-  return (
-    <Pressable style={({ pressed }) => [styles.uploadBox, { borderColor: colors.border, backgroundColor: colors.background }, pressed && styles.pressed]}>
-      <Text style={[styles.uploadTitle, { color: colors.text }]}>{title}</Text>
-      <Text style={[styles.uploadText, { color: colors.textMuted }]}>Tap to choose an image later</Text>
-    </Pressable>
-  );
-}
 
-function RadioRow({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  const colors = useThemeColors();
   return (
-    <Pressable onPress={onPress} style={styles.genderRow}>
-      <View style={[styles.genderRadioOuter, { borderColor: selected ? colors.primary : colors.border }, selected && styles.genderRadioOuterSelected]}>
-        {selected ? <View style={[styles.genderRadioInner, { backgroundColor: colors.primary }]} /> : null}
-      </View>
-      <Text style={[styles.genderLabel, { color: selected ? colors.primary : colors.text }]}>{label}</Text>
+    <Pressable
+      style={({ pressed }) => [
+        styles.uploadBox,
+        {
+          borderColor: colors.border,
+          backgroundColor: colors.background,
+        },
+        pressed && styles.pressed,
+      ]}
+    >
+      <Text style={[styles.uploadTitle, { color: colors.text }]}>{title}</Text>
+      <Text style={[styles.uploadText, { color: colors.textMuted }]}>
+        Tap to choose an image later
+      </Text>
     </Pressable>
   );
 }
@@ -662,15 +781,32 @@ function TermsCheckbox({
   onPress: () => void;
 }) {
   const colors = useThemeColors();
+
   return (
     <View style={styles.termsBlock}>
       <Pressable style={styles.checkboxRow} onPress={onPress}>
-        <View style={[styles.checkbox, { borderColor: checked ? colors.primary : colors.border, backgroundColor: checked ? colors.primary : colors.background }]}>
+        <View
+          style={[
+            styles.checkbox,
+            {
+              borderColor: checked ? colors.primary : colors.border,
+              backgroundColor: checked ? colors.primary : colors.background,
+            },
+          ]}
+        >
           {checked ? <Text style={styles.checkmark}>✓</Text> : null}
         </View>
-        <Text style={[styles.checkboxLabel, { color: colors.text }]}>I accept the Terms and Conditions</Text>
+
+        <Text style={[styles.checkboxLabel, { color: colors.text }]}>
+          I accept the Terms and Conditions
+        </Text>
       </Pressable>
-      {error ? <Text style={[styles.checkboxError, { color: colors.error }]}>{error}</Text> : null}
+
+      {error ? (
+        <Text style={[styles.checkboxError, { color: colors.error }]}>
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -679,40 +815,74 @@ const styles = StyleSheet.create({
   screen: {
     paddingBottom: theme.spacing.xxl,
   },
+
   header: {
     marginBottom: theme.spacing.xl,
     gap: theme.spacing.sm,
   },
+
   eyebrow: {
     fontSize: theme.fontSize.xs,
     fontWeight: '700',
     letterSpacing: 1.2,
     textTransform: 'uppercase',
   },
+
   title: {
     fontSize: theme.fontSize.xxl,
     fontWeight: '700',
   },
+
   subtitle: {
     fontSize: theme.fontSize.md,
     lineHeight: 22,
   },
+
   card: {
     borderWidth: 1,
     borderRadius: theme.radius.lg,
     padding: theme.spacing.lg,
   },
+
   notice: {
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
     lineHeight: 20,
     marginBottom: theme.spacing.lg,
   },
+
   sectionTitle: {
     fontSize: theme.fontSize.lg,
     fontWeight: '700',
     marginBottom: theme.spacing.lg,
   },
+
+  accountTypeRow: {
+    flexDirection: 'row',
+    gap: theme.spacing.md,
+  },
+
+  accountTypeOption: {
+    flex: 1,
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.md,
+  },
+
+  accountTypeText: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+
+  accountTypeTextSelected: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+
   uploadBox: {
     minHeight: 96,
     borderWidth: 1,
@@ -724,14 +894,73 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.lg,
     gap: theme.spacing.xs,
   },
+
   uploadTitle: {
     fontSize: theme.fontSize.md,
     fontWeight: '600',
   },
+
   uploadText: {
     fontSize: theme.fontSize.sm,
     textAlign: 'center',
   },
+
+  dateGenderRow: {
+    flexDirection: 'row',
+    gap: theme.spacing.md,
+    alignItems: 'flex-start',
+  },
+
+  dateColumn: {
+    flex: 1.25,
+  },
+
+  genderColumn: {
+    flex: 0.9,
+  },
+
+  dropdownWrapper: {
+    position: 'relative',
+    zIndex: 30,
+  },
+
+  dropdownTrigger: {
+    height: 48,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: theme.spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  dropdownText: {
+    flex: 1,
+    fontSize: theme.fontSize.md,
+  },
+
+  dropdownArrow: {
+    fontSize: 18,
+    marginLeft: 6,
+  },
+
+  dropdownMenu: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    overflow: 'hidden',
+    zIndex: 50,
+  },
+
+  dropdownOption: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 12,
+  },
+
+  dropdownOptionText: {
+    fontSize: theme.fontSize.sm,
+  },
+
   textArea: {
     minHeight: 120,
     borderWidth: 1,
@@ -740,15 +969,18 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.md,
     fontSize: theme.fontSize.md,
   },
+
   termsBlock: {
     marginBottom: theme.spacing.xl,
     gap: theme.spacing.xs,
   },
+
   checkboxRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: theme.spacing.md,
   },
+
   checkbox: {
     width: 22,
     height: 22,
@@ -758,24 +990,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 1,
   },
+
   checkmark: {
     color: '#fff',
     fontSize: 13,
     fontWeight: '700',
   },
+
   checkboxLabel: {
     flex: 1,
     fontSize: theme.fontSize.sm,
     lineHeight: 20,
   },
+
   checkboxError: {
     fontSize: theme.fontSize.xs,
     fontWeight: '700',
     marginLeft: 34,
   },
+
   submitButton: {
     marginTop: theme.spacing.sm,
   },
+
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -783,66 +1020,17 @@ const styles = StyleSheet.create({
     gap: theme.spacing.xs,
     marginTop: theme.spacing.lg,
   },
+
   footerText: {
     fontSize: theme.fontSize.sm,
   },
+
   footerLink: {
     fontSize: theme.fontSize.sm,
     fontWeight: '600',
   },
-  accountTypeRow: {
-    flexDirection: 'row',
-    gap: theme.spacing.md,
-  },
-  accountTypeOption: {
-    flex: 1,
-    minHeight: 48,
-    borderWidth: 1,
-    borderRadius: theme.radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.md,
-  },
-  accountTypeText: {
-    fontSize: theme.fontSize.sm,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  accountTypeTextSelected: {
-    color: '#fff',
-    fontWeight: '700',
-  },
-  genderList: {
-    gap: theme.spacing.sm,
-  },
-  genderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.md,
-    paddingVertical: theme.spacing.xs,
-  },
-  genderRadioOuter: {
-    width: 22,
-    height: 22,
-    borderRadius: theme.radius.full,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  genderRadioOuterSelected: {},
-  genderRadioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: theme.radius.full,
-  },
-  genderLabel: {
-    fontSize: theme.fontSize.sm,
-  },
-  genderLabelSelected: {
-    fontWeight: '600',
-  },
+
   pressed: {
     opacity: 0.75,
   },
 });
-``

@@ -23,16 +23,21 @@ function toYMD(date: Date): string {
 function fromYMD(value: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return null;
+
   const [, y, m, d] = match;
   const date = new Date(Number(y), Number(m) - 1, Number(d));
+
   if (Number.isNaN(date.getTime())) return null;
   return date;
 }
 
-// Web implementation uses the browser's native <input type="date">.
-function WebDateField({ value, onChange, error, maximumDate, minimumDate }: Props) {
-  const colors = useThemeColors();
-
+function WebDateField({
+  value,
+  onChange,
+  error,
+  maximumDate,
+  minimumDate,
+}: Props) {
   return React.createElement('input', {
     type: 'date',
     value: value ? toYMD(value) : '',
@@ -46,12 +51,12 @@ function WebDateField({ value, onChange, error, maximumDate, minimumDate }: Prop
       height: 48,
       width: '100%',
       boxSizing: 'border-box',
-      border: `1px solid ${error ? colors.error : colors.border}`,
+      border: `1px solid ${error ? '#DC2626' : '#D1D5DB'}`,
       borderRadius: theme.radius.md,
       padding: `0 ${theme.spacing.md}px`,
       fontSize: theme.fontSize.md,
-      color: colors.text,
-      backgroundColor: colors.background,
+      color: '#000000',
+      backgroundColor: '#FFFFFF',
       fontFamily: 'inherit',
       outline: 'none',
     },
@@ -64,19 +69,34 @@ export function DateField(props: Props) {
 }
 
 function NativeDateField(props: Props) {
-  const { value, onChange, placeholder = 'Select date', error, maximumDate, minimumDate } = props;
-  const colors = useThemeColors();
+  const {
+    value,
+    onChange,
+    placeholder = 'Select date',
+    error,
+    maximumDate,
+    minimumDate,
+  } = props;
 
+  const colors = useThemeColors();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Date>(value ?? new Date(2000, 0, 1));
 
-  const handleAndroidChange = (event: DateTimePickerEvent, selected?: Date) => {
+  const handleAndroidChange = (
+    event: DateTimePickerEvent,
+    selected?: Date,
+  ) => {
     setOpen(false);
-    if (event.type === 'set' && selected) onChange(selected);
+
+    if (event.type === 'set' && selected) {
+      onChange(selected);
+    }
   };
 
   const handleIosChange = (_: DateTimePickerEvent, selected?: Date) => {
-    if (selected) setDraft(selected);
+    if (selected) {
+      setDraft(selected);
+    }
   };
 
   return (
@@ -88,11 +108,21 @@ function NativeDateField(props: Props) {
         }}
         style={[
           styles.trigger,
-          { backgroundColor: colors.background, borderColor: error ? colors.error : colors.border },
+          {
+            backgroundColor: '#FFFFFF',
+            borderColor: error ? '#DC2626' : '#D1D5DB',
+          },
         ]}
         accessibilityRole="button"
       >
-        <Text style={[styles.value, { color: colors.text }, !value && { color: colors.textMuted }]}>
+        <Text
+          style={[
+            styles.value,
+            {
+              color: value ? '#000000' : '#6B7280',
+            },
+          ]}
+        >
           {value ? toYMD(value) : placeholder}
         </Text>
       </Pressable>
@@ -101,10 +131,11 @@ function NativeDateField(props: Props) {
         <DateTimePicker
           value={value ?? new Date(2000, 0, 1)}
           mode="date"
-          display="default"
+          display="calendar"
           onChange={handleAndroidChange}
           maximumDate={maximumDate}
           minimumDate={minimumDate}
+          themeVariant="light"
         />
       ) : null}
 
@@ -116,28 +147,38 @@ function NativeDateField(props: Props) {
           onRequestClose={() => setOpen(false)}
         >
           <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
-            <Pressable style={[styles.sheet, { backgroundColor: colors.background }]} onPress={() => {}}>
-              <View style={[styles.sheetHeader, { borderBottomColor: colors.border }]}>
+            <Pressable style={styles.sheet} onPress={() => {}}>
+              <View style={styles.sheetHeader}>
                 <Pressable onPress={() => setOpen(false)}>
-                  <Text style={[styles.sheetAction, { color: colors.textMuted }]}>Cancel</Text>
+                  <Text style={styles.cancelButton}>Cancel</Text>
                 </Pressable>
+
+                <Text style={styles.sheetTitle}>Select date</Text>
+
                 <Pressable
                   onPress={() => {
                     onChange(draft);
                     setOpen(false);
                   }}
                 >
-                  <Text style={[styles.sheetAction, { color: colors.primary, fontWeight: '600' }]}>Done</Text>
+                  <Text style={styles.doneButton}>Done</Text>
                 </Pressable>
               </View>
-              <DateTimePicker
-                value={draft}
-                mode="date"
-                display="spinner"
-                onChange={handleIosChange}
-                maximumDate={maximumDate}
-                minimumDate={minimumDate}
-              />
+
+              <View style={styles.pickerWrapper}>
+                <DateTimePicker
+                  value={draft}
+                  mode="date"
+                  display="spinner"
+                  onChange={handleIosChange}
+                  maximumDate={maximumDate}
+                  minimumDate={minimumDate}
+                  themeVariant="light"
+                  textColor="#000000"
+                  accentColor={colors.primary}
+                  style={styles.iosPicker}
+                />
+              </View>
             </Pressable>
           </Pressable>
         </Modal>
@@ -154,26 +195,59 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     justifyContent: 'center',
   },
-  value: { fontSize: theme.fontSize.md },
-  placeholder: {},
+
+  value: {
+    fontSize: theme.fontSize.md,
+    color: '#000000',
+  },
+
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'flex-end',
   },
+
   sheet: {
+    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: theme.radius.lg,
     borderTopRightRadius: theme.radius.lg,
     paddingBottom: theme.spacing.lg,
+    overflow: 'hidden',
   },
+
   sheetHeader: {
+    height: 56,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: theme.spacing.md,
+    alignItems: 'center',
+    paddingHorizontal: theme.spacing.md,
     borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
   },
-  sheetAction: {
+
+  sheetTitle: {
+    color: '#000000',
     fontSize: theme.fontSize.md,
-    paddingHorizontal: theme.spacing.sm,
+    fontWeight: '700',
+  },
+
+  cancelButton: {
+    color: '#000000',
+    fontSize: theme.fontSize.md,
+  },
+
+  doneButton: {
+    color: '#000000',
+    fontSize: theme.fontSize.md,
+    fontWeight: '700',
+  },
+
+  pickerWrapper: {
+    backgroundColor: '#FFFFFF',
+  },
+
+  iosPicker: {
+    backgroundColor: '#FFFFFF',
   },
 });
