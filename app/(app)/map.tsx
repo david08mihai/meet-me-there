@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '../../src/lib/supabase';
+import { Input } from '../../src/ui/Input';
 import { Select } from '../../src/ui/Select';
 import { theme, useThemeColors } from '../../src/ui/theme';
 
@@ -183,6 +184,8 @@ export default function ExploreMap() {
   const colors = useThemeColors();
 
   const [viewMode, setViewMode] = useState<ViewMode>('map');
+  const [searchExpanded, setSearchExpanded] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState<DateFilter>('all');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -313,10 +316,11 @@ export default function ExploreMap() {
       const tagsOk =
         selectedTags.length === 0 ||
         selectedTags.every((tag) => event.tags.includes(tag));
+      const searchOk = searchQuery === '' || event.title.toLowerCase().includes(searchQuery.toLowerCase());
 
-      return dateOk && timeOk && tagsOk;
+      return dateOk && timeOk && tagsOk && searchOk;
     });
-  }, [dateFilter, events, selectedTags, timeFilter]);
+  }, [dateFilter, events, searchQuery, selectedTags, timeFilter]);
 
   const selectedEvent =
     selectedEventId !== null
@@ -328,6 +332,19 @@ export default function ExploreMap() {
       pathname: '/events/[id]',
       params: { id: String(event.id) },
     });
+  };
+
+  const handleSearchSubmit = () => {
+    if (searchQuery.trim() === '') return;
+    
+    // Search in all events, not just visible ones
+    const matchedEvent = events.find((event) =>
+      event.title.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    
+    if (matchedEvent) {
+      setSelectedEventId(matchedEvent.id);
+    }
   };
 
   const toggleTag = (tag: string) => {
@@ -344,24 +361,86 @@ export default function ExploreMap() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.primary }]}>Explore Events</Text>
-        <Pressable
-          onPress={() => setViewMode((mode) => (mode === 'map' ? 'list' : 'map'))}
-          accessibilityRole="button"
-          accessibilityLabel={viewMode === 'map' ? 'Switch to list view' : 'Switch to map view'}
-          style={({ pressed }) => [
-            styles.iconButton,
-            { backgroundColor: colors.surface, borderColor: colors.border },
-            pressed && styles.pressed,
-          ]}
-        >
-          <Ionicons
-            name={viewMode === 'map' ? 'list-outline' : 'map-outline'}
-            size={22}
-            color={colors.primary}
-          />
-        </Pressable>
+      <View style={[styles.header, searchExpanded && styles.headerExpanded]}>
+        {searchExpanded ? (
+          <>
+            <Pressable
+              onPress={() => {
+                setSearchExpanded(false);
+                setSearchQuery('');
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Close search"
+              style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
+            >
+              <Ionicons name="arrow-back" size={22} color={colors.text} />
+            </Pressable>
+            <Input
+              autoFocus
+              placeholder="Search events..."
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              leftElement={<Ionicons name="search" size={18} color={colors.textMuted} />}
+            />
+            <Pressable
+              onPress={handleSearchSubmit}
+              accessibilityRole="button"
+              accessibilityLabel="Search"
+              style={({ pressed }) => [
+                styles.iconButton,
+                { backgroundColor: colors.primary, borderColor: colors.primary },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Ionicons name="checkmark" size={20} color="#FFFFFF" />
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setSearchExpanded(false);
+                setSearchQuery('');
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Close search"
+              style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
+            >
+              <Ionicons name="close" size={22} color={colors.text} />
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Text style={[styles.title, { color: colors.primary }]}>Explore Events</Text>
+            <View style={styles.headerActions}>
+              <Pressable
+                onPress={() => setSearchExpanded(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Search events"
+                style={({ pressed }) => [
+                  styles.iconButton,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Ionicons name="search" size={22} color={colors.primary} />
+              </Pressable>
+              <Pressable
+                onPress={() => setViewMode((mode) => (mode === 'map' ? 'list' : 'map'))}
+                accessibilityRole="button"
+                accessibilityLabel={viewMode === 'map' ? 'Switch to list view' : 'Switch to map view'}
+                style={({ pressed }) => [
+                  styles.iconButton,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Ionicons
+                  name={viewMode === 'map' ? 'list-outline' : 'map-outline'}
+                  size={22}
+                  color={colors.primary}
+                />
+              </Pressable>
+            </View>
+          </>
+        )}
       </View>
 
       <View style={[styles.filters, { backgroundColor: colors.background }]}>
@@ -482,6 +561,18 @@ function MapView({
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
+
+  useEffect(() => {
+    // When a search result is selected, pan to the event location
+    if (selectedEvent && selectedEvent.latitude !== null && selectedEvent.longitude !== null) {
+      centerRef.current = {
+        latitude: selectedEvent.latitude,
+        longitude: selectedEvent.longitude,
+      };
+      setZoom(13);
+      forceUpdate((n) => n + 1);
+    }
+  }, [selectedEvent?.id]);
 
   const center = centerRef.current;
   const mapWidth = mapSize.width || 360;
@@ -929,6 +1020,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.lg,
     paddingTop: theme.spacing.sm,
     paddingBottom: theme.spacing.sm,
+  },
+  headerExpanded: {
+    paddingHorizontal: theme.spacing.md,
+    gap: theme.spacing.sm,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+  },
+  backButton: {
+    padding: theme.spacing.sm,
+    marginLeft: -theme.spacing.sm,
+  },
+  closeButton: {
+    padding: theme.spacing.sm,
+    marginRight: -theme.spacing.sm,
+  },
+  headerSearchInput: {
+    fontSize: theme.fontSize.md,
+    flex: 1,
+    minHeight: 44,
   },
   title: {
     color: theme.colors.primary,

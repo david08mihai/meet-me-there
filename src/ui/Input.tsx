@@ -25,14 +25,16 @@ export const Input = forwardRef<TextInput, Props>(function Input(props, ref) {
   const colors = useThemeColors();
 
   const hasAffix = Boolean(leftElement || rightElement);
+  const isDark = colors.background === '#0F172A';
   const wrapperStyle = [
     variant === 'pill' ? styles.pillWrap : styles.wrap,
     focused && styles.focused,
     error && styles.errored,
     {
-      backgroundColor: variant === 'pill' ? colors.surface : colors.background,
+      backgroundColor: isDark ? '#111827' : colors.surface,
       borderColor: error ? colors.error : focused ? colors.primary : colors.border,
     },
+    rest.multiline && { height: 'auto' },
   ];
 
   const textInput = (
@@ -53,10 +55,10 @@ export const Input = forwardRef<TextInput, Props>(function Input(props, ref) {
         focused && !hasAffix && variant === 'default' && styles.focused,
         error && !hasAffix && variant === 'default' && styles.errored,
         {
-          backgroundColor: variant === 'default' ? colors.background : 'transparent',
-          color: colors.text,
+          backgroundColor: hasAffix ? (isDark ? '#111827' : 'transparent') : (isDark ? '#111827' : colors.surface),
+          color: isDark ? '#FFFFFF' : colors.text,
         },
-        rest.multiline && { height: 'auto' },
+        rest.multiline && { minHeight: 44, paddingVertical: theme.spacing.sm },
         style,
       ]}
     />
