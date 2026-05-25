@@ -29,6 +29,7 @@ import { FormField } from '../../../src/ui/FormField';
 import { Input } from '../../../src/ui/Input';
 import { Screen } from '../../../src/ui/Screen';
 import { theme, useThemeColors } from '../../../src/ui/theme';
+import { registerForPushNotificationsAsync } from '../../../src/lib/notifications';
 
 type AccountType = 'personal' | 'business';
 
@@ -216,6 +217,14 @@ export default function RegisterAccountType() {
           role: 'user',
           account_status: 'active',
         });
+        const token = await registerForPushNotificationsAsync();
+
+if (token) {
+  await supabase
+    .from("users")
+    .update({ push_token: token })
+    .eq("user_id", data.user.id);
+}
 
         if (userInsertError) throw userInsertError;
 
@@ -249,6 +258,14 @@ export default function RegisterAccountType() {
           role: 'user',
           account_status: 'active',
         });
+        const token = await registerForPushNotificationsAsync();
+    
+if (token) {
+  await supabase
+    .from("users")
+    .update({ push_token: token })
+    .eq("user_id", data.user.id);
+}
 
         if (userInsertError) throw userInsertError;
 

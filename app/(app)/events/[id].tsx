@@ -310,6 +310,7 @@ export default function EventDetails() {
       Alert.alert('Joined', 'You are attending this event.');
       await loadEvent();
     } catch (error) {
+      console.log(error)
       Alert.alert(
         'Error',
         error instanceof Error ? error.message : 'Failed to join event'

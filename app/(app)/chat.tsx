@@ -268,7 +268,22 @@ export default function Chat() {
     });
 
     if (error) throw error;
+    const { data: participants } = await supabase
+  .from("event_participants")
+  .select("user_id")
+      .eq("event_id", event.event_id);
+    
+    for (const p of participants ?? []) {
+      if (p.user_id === user.id) continue;
 
+      await supabase.functions.invoke("send-notification", {
+        body: {
+          receiverId: p.user_id,
+          title: "Mesaj nou",
+          body: trimmed,
+        },
+      });
+    }
     setDraft('');
     await loadMessages(chat.chat_id, event);
   } catch (error) {
