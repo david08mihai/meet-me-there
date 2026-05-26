@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -64,10 +64,68 @@ type DisplayMessage = {
   isDeleted: boolean;
 };
 
+type SenderProfile = {
+  name: string;
+  avatar: string | null;
+};
+
+const FALLBACK_REFRESH_MS = 1500;
+
+function compareMessages(a: DisplayMessage, b: DisplayMessage) {
+  const sentAtDiff = new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime();
+  return sentAtDiff === 0 ? a.id - b.id : sentAtDiff;
+}
+
+function upsertMessage(messages: DisplayMessage[], nextMessage: DisplayMessage) {
+  const existingIndex = messages.findIndex((message) => message.id === nextMessage.id);
+
+  if (existingIndex === -1) {
+    return [...messages, nextMessage].sort(compareMessages);
+  }
+
+  const nextMessages = [...messages];
+  nextMessages[existingIndex] = nextMessage;
+  return nextMessages.sort(compareMessages);
+}
+
+function toChatMessageRow(value: unknown): ChatMessageRow | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const row = value as Partial<ChatMessageRow>;
+  if (
+    typeof row.message_id !== 'number' ||
+    typeof row.chat_id !== 'number' ||
+    typeof row.sender_user_id !== 'string' ||
+    typeof row.sent_at !== 'string'
+  ) {
+    return null;
+  }
+
+  return {
+    message_id: row.message_id,
+    chat_id: row.chat_id,
+    sender_user_id: row.sender_user_id,
+    message_text: typeof row.message_text === 'string' ? row.message_text : null,
+    sent_at: row.sent_at,
+    is_deleted: row.is_deleted === true,
+  };
+}
+
+function getMessageId(value: unknown) {
+  if (!value || typeof value !== 'object') return null;
+
+  const row = value as Partial<ChatMessageRow>;
+  return typeof row.message_id === 'number' ? row.message_id : null;
+}
+
 export default function Chat() {
   const router = useRouter();
   const { user } = useAuth();
   const colors = useThemeColors();
+  const liveChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const profileCacheRef = useRef<Map<string, SenderProfile>>(new Map());
+  const refreshInFlightRef = useRef(false);
+  const scrollViewRef = useRef<ScrollView | null>(null);
 
   const params = useLocalSearchParams<{ eventId?: string }>();
   const rawEventId = Array.isArray(params.eventId) ? params.eventId[0] : params.eventId;
@@ -81,6 +139,77 @@ export default function Chat() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
 
+  const getSenderProfiles = useCallback(async (senderIds: string[]) => {
+    const unknownSenderIds = [...new Set(senderIds)].filter(
+      (senderId) => !profileCacheRef.current.has(senderId),
+    );
+
+    if (unknownSenderIds.length === 0) return profileCacheRef.current;
+
+    const [
+      { data: personalData, error: personalError },
+      { data: businessData, error: businessError },
+    ] = await Promise.all([
+      supabase
+        .from('personal_profiles')
+        .select('user_id, full_name, photo_url')
+        .in('user_id', unknownSenderIds),
+      supabase
+        .from('business_profiles')
+        .select('user_id, business_name, logo_url')
+        .in('user_id', unknownSenderIds),
+    ]);
+
+    if (personalError) throw personalError;
+    if (businessError) throw businessError;
+
+    const personalMap = new Map(
+      (personalData ?? []).map((profile: PersonalProfileRow) => [profile.user_id, profile]),
+    );
+    const businessMap = new Map(
+      (businessData ?? []).map((profile: BusinessProfileRow) => [profile.user_id, profile]),
+    );
+    const nextCache = new Map(profileCacheRef.current);
+
+    unknownSenderIds.forEach((senderId) => {
+      const personalProfile = personalMap.get(senderId);
+      const businessProfile = businessMap.get(senderId);
+
+      nextCache.set(senderId, {
+        name: businessProfile?.business_name ?? personalProfile?.full_name ?? 'Unknown user',
+        avatar: businessProfile?.logo_url ?? personalProfile?.photo_url ?? null,
+      });
+    });
+
+    profileCacheRef.current = nextCache;
+    return nextCache;
+  }, []);
+
+  const hydrateMessages = useCallback(
+    async (rawMessages: ChatMessageRow[], currentEvent: EventRow) => {
+      const senderProfiles = await getSenderProfiles(
+        rawMessages.map((message) => message.sender_user_id),
+      );
+
+      return rawMessages.map((message) => {
+        const senderProfile = senderProfiles.get(message.sender_user_id);
+
+        return {
+          id: message.message_id,
+          senderUserId: message.sender_user_id,
+          senderName: senderProfile?.name ?? 'Unknown user',
+          senderAvatar: senderProfile?.avatar ?? null,
+          isOrganizer: currentEvent.organizer_user_id === message.sender_user_id,
+          isCurrentUser: user?.id === message.sender_user_id,
+          text: message.message_text ?? '',
+          sentAt: message.sent_at,
+          isDeleted: message.is_deleted,
+        };
+      });
+    },
+    [getSenderProfiles, user?.id],
+  );
+
   const loadMessages = useCallback(
     async (chatId: number, currentEvent: EventRow) => {
       const { data: rawMessages, error: messagesError } = await supabase
@@ -91,64 +220,34 @@ export default function Chat() {
 
       if (messagesError) throw messagesError;
 
-      const senderIds = [...new Set((rawMessages ?? []).map((m) => m.sender_user_id))];
-
-      let personalProfiles: PersonalProfileRow[] = [];
-      let businessProfiles: BusinessProfileRow[] = [];
-
-      if (senderIds.length > 0) {
-        const [{ data: personalData, error: personalError }, { data: businessData, error: businessError }] =
-          await Promise.all([
-            supabase
-              .from('personal_profiles')
-              .select('user_id, full_name, photo_url')
-              .in('user_id', senderIds),
-            supabase
-              .from('business_profiles')
-              .select('user_id, business_name, logo_url')
-              .in('user_id', senderIds),
-          ]);
-
-        if (personalError) throw personalError;
-        if (businessError) throw businessError;
-
-        personalProfiles = personalData ?? [];
-        businessProfiles = businessData ?? [];
-      }
-
-      const personalMap = new Map(personalProfiles.map((p) => [p.user_id, p]));
-      const businessMap = new Map(businessProfiles.map((b) => [b.user_id, b]));
-
-      const hydrated: DisplayMessage[] = (rawMessages ?? []).map((message: ChatMessageRow) => {
-        const personalProfile = personalMap.get(message.sender_user_id);
-        const businessProfile = businessMap.get(message.sender_user_id);
-
-        const senderName =
-          businessProfile?.business_name ??
-          personalProfile?.full_name ??
-          'Unknown user';
-
-        const senderAvatar =
-          businessProfile?.logo_url ??
-          personalProfile?.photo_url ??
-          null;
-
-        return {
-          id: message.message_id,
-          senderUserId: message.sender_user_id,
-          senderName,
-          senderAvatar,
-          isOrganizer: currentEvent.organizer_user_id === message.sender_user_id,
-          isCurrentUser: user?.id === message.sender_user_id,
-          text: message.message_text ?? '',
-          sentAt: message.sent_at,
-          isDeleted: message.is_deleted,
-        };
-      });
-
+      const hydrated = await hydrateMessages((rawMessages ?? []) as ChatMessageRow[], currentEvent);
       setMessages(hydrated);
     },
-    [user?.id]
+    [hydrateMessages],
+  );
+
+  const refreshMessages = useCallback(
+    async (chatId: number, currentEvent: EventRow) => {
+      if (refreshInFlightRef.current) return;
+
+      refreshInFlightRef.current = true;
+      try {
+        await loadMessages(chatId, currentEvent);
+      } finally {
+        refreshInFlightRef.current = false;
+      }
+    },
+    [loadMessages],
+  );
+
+  const addOrUpdateMessage = useCallback(
+    async (message: ChatMessageRow, currentEvent: EventRow) => {
+      const [hydratedMessage] = await hydrateMessages([message], currentEvent);
+      if (!hydratedMessage) return;
+
+      setMessages((currentMessages) => upsertMessage(currentMessages, hydratedMessage));
+    },
+    [hydrateMessages],
   );
 
   const loadChatData = useCallback(async () => {
@@ -181,10 +280,7 @@ export default function Chat() {
       await loadMessages(chatData.chat_id, eventData);
     } catch (error) {
       console.error(error);
-      Alert.alert(
-        'Error',
-        error instanceof Error ? error.message : 'Failed to load chat'
-      );
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to load chat');
     } finally {
       setLoading(false);
     }
@@ -197,8 +293,46 @@ export default function Chat() {
   useEffect(() => {
     if (!chat?.chat_id || !event) return;
 
+    let mounted = true;
+
+    const safelyRefreshMessages = async () => {
+      if (!mounted) return;
+
+      try {
+        await refreshMessages(chat.chat_id, event);
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    const handleRealtimeMessage = async (payloadValue: unknown) => {
+      const nextMessage = toChatMessageRow(payloadValue);
+
+      if (!nextMessage) {
+        await safelyRefreshMessages();
+        return;
+      }
+
+      if (nextMessage.chat_id !== chat.chat_id) return;
+
+      try {
+        await addOrUpdateMessage(nextMessage, event);
+      } catch (error) {
+        console.error(error);
+        await safelyRefreshMessages();
+      }
+    };
+
     const channel = supabase
-      .channel(`chat-${chat.chat_id}`)
+      .channel(`chat-${chat.chat_id}`, {
+        config: { broadcast: { self: false } },
+      })
+      .on('broadcast', { event: 'message_inserted' }, () => {
+        void safelyRefreshMessages();
+      })
+      .on('broadcast', { event: 'message_updated' }, () => {
+        void safelyRefreshMessages();
+      })
       .on(
         'postgres_changes',
         {
@@ -207,80 +341,89 @@ export default function Chat() {
           table: 'chat_messages',
           filter: `chat_id=eq.${chat.chat_id}`,
         },
-        async () => {
-          try {
-            await loadMessages(chat.chat_id, event);
-          } catch (error) {
-            console.error(error);
+        (payload) => {
+          if (payload.eventType === 'DELETE') {
+            const deletedMessageId = getMessageId(payload.old);
+
+            if (deletedMessageId) {
+              setMessages((currentMessages) =>
+                currentMessages.filter((message) => message.id !== deletedMessageId),
+              );
+              return;
+            }
           }
-        }
+
+          void handleRealtimeMessage(payload.new);
+        },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          void safelyRefreshMessages();
+        }
+      });
+
+    liveChannelRef.current = channel;
+    const fallbackRefreshTimer = setInterval(() => {
+      void safelyRefreshMessages();
+    }, FALLBACK_REFRESH_MS);
 
     return () => {
+      mounted = false;
+      clearInterval(fallbackRefreshTimer);
+      if (liveChannelRef.current === channel) liveChannelRef.current = null;
       supabase.removeChannel(channel);
     };
-  }, [chat?.chat_id, event, loadMessages]);
-
-  const resolveSenderName = useCallback(async () => {
-    if (!user) throw new Error('You must be logged in.');
-
-    const { data: personalProfile } = await supabase
-      .from('personal_profiles')
-      .select('full_name')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (personalProfile?.full_name) return personalProfile.full_name;
-
-    const { data: businessProfile } = await supabase
-      .from('business_profiles')
-      .select('business_name')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (businessProfile?.business_name) return businessProfile.business_name;
-
-    return user.email ?? 'Unknown user';
-  }, [user]);
+  }, [addOrUpdateMessage, chat?.chat_id, event, refreshMessages]);
 
   const handleSend = async () => {
-  if (!user) {
-    Alert.alert('Error', 'You must be logged in to send messages.');
-    return;
-  }
+    if (!user) {
+      Alert.alert('Error', 'You must be logged in to send messages.');
+      return;
+    }
 
-  if (!chat || !event) {
-    Alert.alert('Error', 'Chat is not ready yet.');
-    return;
-  }
+    if (!chat || !event) {
+      Alert.alert('Error', 'Chat is not ready yet.');
+      return;
+    }
 
-  const trimmed = draft.trim();
-  if (!trimmed) return;
+    const trimmed = draft.trim();
+    if (!trimmed) return;
 
-  try {
-    setSending(true);
+    try {
+      setSending(true);
 
-    const { error } = await supabase.from('chat_messages').insert({
-      chat_id: chat.chat_id,
-      sender_user_id: user.id,
-      message_text: trimmed,
-    });
+      const { data: insertedMessage, error } = await supabase
+        .from('chat_messages')
+        .insert({
+          chat_id: chat.chat_id,
+          sender_user_id: user.id,
+          message_text: trimmed,
+        })
+        .select('message_id, chat_id, sender_user_id, message_text, sent_at, is_deleted')
+        .single();
 
-    if (error) throw error;
+      if (error) throw error;
 
-    setDraft('');
-    await loadMessages(chat.chat_id, event);
-  } catch (error) {
-    console.error(error);
-    Alert.alert(
-      'Error',
-      error instanceof Error ? error.message : 'Failed to send message'
-    );
-  } finally {
-    setSending(false);
-  }
-};
+      setDraft('');
+
+      const messageRow = toChatMessageRow(insertedMessage);
+      if (messageRow) {
+        await addOrUpdateMessage(messageRow, event);
+        void liveChannelRef.current?.send({
+          type: 'broadcast',
+          event: 'message_inserted',
+          payload: { message_id: messageRow.message_id },
+        });
+      } else {
+        await refreshMessages(chat.chat_id, event);
+      }
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to send message');
+    } finally {
+      setSending(false);
+    }
+  };
 
   const handleMessageActions = (message: DisplayMessage) => {
     const canDelete = user?.id === message.senderUserId;
@@ -306,7 +449,7 @@ export default function Chat() {
           } catch (error) {
             Alert.alert(
               'Error',
-              error instanceof Error ? error.message : 'Failed to report message'
+              error instanceof Error ? error.message : 'Failed to report message',
             );
           }
         },
@@ -319,19 +462,31 @@ export default function Chat() {
         style: 'destructive',
         onPress: async () => {
           try {
-            const { error } = await supabase
+            const { data: updatedMessage, error } = await supabase
               .from('chat_messages')
               .update({
                 is_deleted: true,
                 message_text: 'This message was deleted',
               })
-              .eq('message_id', message.id);
+              .eq('message_id', message.id)
+              .select('message_id, chat_id, sender_user_id, message_text, sent_at, is_deleted')
+              .single();
 
             if (error) throw error;
+
+            const messageRow = toChatMessageRow(updatedMessage);
+            if (messageRow && event) {
+              await addOrUpdateMessage(messageRow, event);
+              void liveChannelRef.current?.send({
+                type: 'broadcast',
+                event: 'message_updated',
+                payload: { message_id: messageRow.message_id },
+              });
+            }
           } catch (error) {
             Alert.alert(
               'Error',
-              error instanceof Error ? error.message : 'Failed to delete message'
+              error instanceof Error ? error.message : 'Failed to delete message',
             );
           }
         },
@@ -341,13 +496,16 @@ export default function Chat() {
     Alert.alert(
       'Message Actions',
       message.isDeleted ? 'This message was deleted' : message.text,
-      buttons
+      buttons,
     );
   };
 
   if (!validEventId) {
     return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
+      <SafeAreaView
+        style={[styles.safeArea, { backgroundColor: colors.surface }]}
+        edges={['top', 'left', 'right']}
+      >
         <ScreenHeader title="Event Chat" onBack={() => router.back()} />
         <View style={styles.emptyState}>
           <Ionicons name="chatbubbles-outline" size={32} color={colors.textMuted} />
@@ -360,7 +518,10 @@ export default function Chat() {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
+      <SafeAreaView
+        style={[styles.safeArea, { backgroundColor: colors.surface }]}
+        edges={['top', 'left', 'right']}
+      >
         <ScreenHeader title="Event Chat" onBack={() => router.back()} />
         <View style={styles.emptyState}>
           <Text style={[styles.emptyText, { color: colors.textMuted }]}>Loading chat...</Text>
@@ -371,19 +532,27 @@ export default function Chat() {
 
   if (!event || !chat) {
     return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
+      <SafeAreaView
+        style={[styles.safeArea, { backgroundColor: colors.surface }]}
+        edges={['top', 'left', 'right']}
+      >
         <ScreenHeader title="Event Chat" onBack={() => router.back()} />
         <View style={styles.emptyState}>
           <Ionicons name="chatbubbles-outline" size={32} color={colors.textMuted} />
           <Text style={[styles.emptyTitle, { color: colors.text }]}>Chat unavailable</Text>
-          <Text style={[styles.emptyText, { color: colors.textMuted }]}>The selected event chat could not be found.</Text>
+          <Text style={[styles.emptyText, { color: colors.textMuted }]}>
+            The selected event chat could not be found.
+          </Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.surface }]} edges={['top', 'left', 'right']}>
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: colors.surface }]}
+      edges={['top', 'left', 'right']}
+    >
       <ScreenHeader title="Event Chat" onBack={() => router.back()} />
 
       <KeyboardAvoidingView
@@ -397,7 +566,13 @@ export default function Chat() {
           <Text style={[styles.onlineText, { color: colors.success }]}>Live event chat</Text>
         </View>
 
-        <ScrollView contentContainerStyle={styles.messages} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          ref={scrollViewRef}
+          contentContainerStyle={styles.messages}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+        >
           <View style={[styles.dateSeparator, { backgroundColor: colors.border }]}>
             <Text style={[styles.dateSeparatorText, { color: colors.textMuted }]}>TODAY</Text>
           </View>
@@ -411,22 +586,27 @@ export default function Chat() {
           ))}
         </ScrollView>
 
-        <View style={[styles.inputBar, { borderTopColor: colors.border, backgroundColor: colors.background }]}>
+        <View
+          style={[
+            styles.inputBar,
+            { borderTopColor: colors.border, backgroundColor: colors.background },
+          ]}
+        >
           <Pressable
             onPress={() => setDraft((value) => `${value}🙂 `)}
             accessibilityRole="button"
             accessibilityLabel="Insert emoji"
-            style={({ pressed }) => [styles.inputIconButton, { backgroundColor: colors.surface }, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.inputIconButton,
+              { backgroundColor: colors.surface },
+              pressed && styles.pressed,
+            ]}
           >
             <Ionicons name="happy-outline" size={22} color={colors.primary} />
           </Pressable>
 
           <View style={styles.inputWrap}>
-            <Input
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="Type a message..."
-            />
+            <Input value={draft} onChangeText={setDraft} placeholder="Type a message..." />
           </View>
 
           <Pressable
@@ -463,10 +643,7 @@ function MessageBubble({
     <Pressable
       onLongPress={onLongPress}
       delayLongPress={280}
-      style={[
-        styles.messageRow,
-        outgoing ? styles.messageRowOutgoing : styles.messageRowIncoming,
-      ]}
+      style={[styles.messageRow, outgoing ? styles.messageRowOutgoing : styles.messageRowIncoming]}
     >
       {!outgoing ? (
         message.senderAvatar ? (
@@ -480,12 +657,17 @@ function MessageBubble({
         )
       ) : null}
 
-      <View style={[
-        styles.bubble,
-        outgoing
-          ? [styles.outgoingBubble, { backgroundColor: colors.primary }]
-          : [styles.incomingBubble, { backgroundColor: colors.background, borderColor: colors.border }],
-      ]}>
+      <View
+        style={[
+          styles.bubble,
+          outgoing
+            ? [styles.outgoingBubble, { backgroundColor: colors.primary }]
+            : [
+                styles.incomingBubble,
+                { backgroundColor: colors.background, borderColor: colors.border },
+              ],
+        ]}
+      >
         {!outgoing ? (
           <View style={styles.senderRow}>
             <Text style={[styles.senderName, { color: colors.text }]}>{message.senderName}</Text>
@@ -498,14 +680,21 @@ function MessageBubble({
         ) : null}
 
         {message.isDeleted ? (
-          <Text style={[styles.deletedText, { color: colors.textMuted }]}>This message was deleted</Text>
+          <Text style={[styles.deletedText, { color: colors.textMuted }]}>
+            This message was deleted
+          </Text>
         ) : (
           <Text style={[styles.messageText, { color: outgoing ? '#FFFFFF' : colors.text }]}>
             {message.text}
           </Text>
         )}
 
-        <Text style={[styles.messageTime, { color: outgoing ? 'rgba(255,255,255,0.8)' : colors.textMuted }]}>
+        <Text
+          style={[
+            styles.messageTime,
+            { color: outgoing ? 'rgba(255,255,255,0.8)' : colors.textMuted },
+          ]}
+        >
           {new Intl.DateTimeFormat('en', {
             hour: 'numeric',
             minute: '2-digit',
