@@ -96,6 +96,7 @@ type EventDetailsModel = {
   price: number;
   paymentModel: 'Free' | 'Paid';
   isBooked: boolean;
+  currentUserBookingId: number | null;
   participantNames: string[];
   tags: string[];
   organizer: OrganizerInfo;
@@ -131,6 +132,15 @@ function formatEventSchedule(startsAt: string, endsAt: string) {
   }).format(end);
 
   return `${datePart} · ${startTime} - ${endTime}`;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+  return fallback;
 }
 
 export default function EventDetails() {
@@ -280,7 +290,8 @@ export default function EventDetails() {
         .map((row: any) => row.tags?.name)
         .filter(Boolean);
 
-      const isBooked = !!bookings.find((booking) => booking.user_id === user?.id);
+      const currentUserBooking = bookings.find((booking) => booking.user_id === user?.id);
+      const isBooked = !!currentUserBooking;
 
       setEvent({
         eventId: eventData.event_id,
@@ -295,6 +306,7 @@ export default function EventDetails() {
         price: eventData.ticket_price ?? 0,
         paymentModel: eventData.pricing_model === 'paid' ? 'Paid' : 'Free',
         isBooked,
+        currentUserBookingId: currentUserBooking?.booking_id ?? null,
         participantNames,
         tags,
         organizer,
@@ -380,8 +392,19 @@ export default function EventDetails() {
   };
 
   const eventHasEnded = event ? new Date(event.endsAt) <= new Date() : false;
+  const hasReviewTarget = event
+    ? event.organizer.type === 'personal'
+      ? event.organizer.profileId !== null
+      : event.organizer.businessProfileId !== null
+    : false;
   const canReview =
-    !!user && !!event && event.isBooked && eventHasEnded && event.organizer.userId !== user.id;
+    !!user &&
+    !!event &&
+    event.isBooked &&
+    event.currentUserBookingId !== null &&
+    eventHasEnded &&
+    hasReviewTarget &&
+    event.organizer.userId !== user.id;
 
   const openReviewModal = async () => {
     if (!user || !event || !canReview) return;
@@ -394,10 +417,7 @@ export default function EventDetails() {
       const { data, error } = await supabase
         .from('reviews')
         .select('review_id, stars, comment')
-        .eq('event_id', event.eventId)
-        .eq('reviewer_user_id', user.id)
-        .eq('target_user_id', event.organizer.userId)
-        .eq('review_type', 'event')
+        .eq('booking_id', event.currentUserBookingId)
         .maybeSingle<ExistingReviewRow>();
 
       if (error) throw error;
@@ -416,9 +436,11 @@ export default function EventDetails() {
 
     try {
       setReviewSubmitting(true);
+      if (!event.currentUserBookingId) throw new Error('Booking not found for this event.');
 
       const { error } = await supabase.from('reviews').upsert(
         {
+          booking_id: event.currentUserBookingId,
           event_id: event.eventId,
           reviewer_user_id: user.id,
           target_user_id: event.organizer.userId,
@@ -430,7 +452,7 @@ export default function EventDetails() {
           stars: reviewStars,
           comment: reviewComment.trim() || null,
         },
-        { onConflict: 'event_id,reviewer_user_id,target_user_id,review_type' }
+        { onConflict: 'booking_id' }
       );
 
       if (error) throw error;
@@ -439,7 +461,7 @@ export default function EventDetails() {
       Alert.alert('Review saved', 'Thanks for helping the community stay trustworthy.');
       await loadEvent();
     } catch (error) {
-      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to save review');
+      Alert.alert('Error', getErrorMessage(error, 'Failed to save review'));
     } finally {
       setReviewSubmitting(false);
     }
