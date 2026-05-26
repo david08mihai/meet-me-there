@@ -413,7 +413,7 @@ export default function Chat() {
       <ScreenHeader title="Event Chat" onBack={() => router.back()} />
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.flex}
       >
         <View style={[styles.chatHeader, { borderBottomColor: colors.border }]}>
