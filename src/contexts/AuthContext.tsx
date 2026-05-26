@@ -16,7 +16,6 @@ import {
   isLocalUser,
   saveLocalSessionUser,
 } from '../lib/localAuth';
-
 type AuthContextValue = {
   user: User | null;
   session: Session | null;
@@ -35,50 +34,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [initializing, setInitializing] = useState(true);
 
+
   useEffect(() => {
-    let mounted = true;
+  let mounted = true;
 
-    supabase.auth
-      .getSession()
-      .then(async ({ data, error }) => {
-        if (!mounted) return;
+  supabase.auth
+    .getSession()
+    .then(async ({ data, error }) => {
+      if (!mounted) return;
 
-        if (error && !isAuthNetworkError(error)) {
-          console.error('Error getting session:', error);
-        }
+      if (error && !isAuthNetworkError(error)) {
+        console.error('Error getting session:', error);
+      }
 
-        const localUser = data.session ? null : await getLocalSessionUser();
+      const localUser = data.session ? null : await getLocalSessionUser();
 
-        setSession(data.session ?? null);
-        setUser(data.session?.user ?? localUser);
-        setInitializing(false);
-      })
-      .catch(async (error) => {
-        if (!mounted) return;
-        if (!isAuthNetworkError(error)) {
-          console.error('Error getting session:', error);
-        }
+      setSession(data.session ?? null);
+      setUser(data.session?.user ?? localUser);
+      setInitializing(false);
+    })
+    .catch(async (error) => {
+      if (!mounted) return;
+      if (!isAuthNetworkError(error)) {
+        console.error('Error getting session:', error);
+      }
 
-        const localUser = await getLocalSessionUser();
-        setSession(null);
-        setUser(localUser);
-        setInitializing(false);
-      });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession ?? null);
-      setUser(nextSession?.user ?? null);
+      const localUser = await getLocalSessionUser();
+      setSession(null);
+      setUser(localUser);
       setInitializing(false);
     });
 
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
-  }, []);
+  const { data } = supabase.auth.onAuthStateChange(
+    async (_event, nextSession) => {
+      setSession(nextSession ?? null);
+      setUser(nextSession?.user ?? null);
+      setInitializing(false);
+    }
+  );
 
+  const subscription = data.subscription;
+
+  return () => {
+    mounted = false;
+    subscription.unsubscribe();
+  };
+}, []);
   const signOut = async () => {
     await clearLocalSession();
     setSession(null);
