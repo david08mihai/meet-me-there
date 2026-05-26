@@ -4,7 +4,9 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -791,73 +793,78 @@ function ReviewModal({
 }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.modalBackdrop} onPress={onClose}>
-        <Pressable
-          style={[styles.modalSheet, { backgroundColor: colors.surface }]}
-          onPress={() => {}}
-        >
-          <View style={styles.modalHeader}>
-            <View style={styles.reviewTitleWrap}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Review Event</Text>
-              <Text style={[styles.reviewSubtitle, { color: colors.textMuted }]}>
-                Rate your experience with {organizerName}
-              </Text>
-            </View>
-            <Pressable onPress={onClose} hitSlop={10}>
-              <Ionicons name="close" size={22} color={colors.textMuted} />
-            </Pressable>
-          </View>
-
-          <View style={styles.starPicker}>
-            {Array.from({ length: 5 }, (_, index) => {
-              const value = index + 1;
-              const active = value <= stars;
-
-              return (
-                <Pressable
-                  key={value}
-                  onPress={() => onStarsChange(value)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${value} star${value === 1 ? '' : 's'}`}
-                  style={({ pressed }) => [styles.starButton, pressed && styles.pressed]}
-                >
-                  <Ionicons
-                    name={active ? 'star' : 'star-outline'}
-                    size={34}
-                    color="#F59E0B"
-                  />
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <Input
-            value={comment}
-            onChangeText={onCommentChange}
-            placeholder="What should others know?"
-            multiline
-            textAlignVertical="top"
-            style={styles.reviewInput}
-          />
-
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.modalKeyboardAvoider}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={onClose}>
           <Pressable
-            onPress={onSubmit}
-            disabled={submitting}
-            accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.primaryButton,
-              { backgroundColor: colors.primary },
-              pressed && styles.pressed,
-              submitting && styles.disabled,
-            ]}
+            style={[styles.modalSheet, { backgroundColor: colors.surface }]}
+            onPress={() => {}}
           >
-            <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
-            <Text style={styles.primaryButtonText}>
-              {submitting ? 'Saving...' : 'Save Review'}
-            </Text>
+            <View style={styles.modalHeader}>
+              <View style={styles.reviewTitleWrap}>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Review Event</Text>
+                <Text style={[styles.reviewSubtitle, { color: colors.textMuted }]}>
+                  Rate your experience with {organizerName}
+                </Text>
+              </View>
+              <Pressable onPress={onClose} hitSlop={10}>
+                <Ionicons name="close" size={22} color={colors.textMuted} />
+              </Pressable>
+            </View>
+
+            <View style={styles.starPicker}>
+              {Array.from({ length: 5 }, (_, index) => {
+                const value = index + 1;
+                const active = value <= stars;
+
+                return (
+                  <Pressable
+                    key={value}
+                    onPress={() => onStarsChange(value)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${value} star${value === 1 ? '' : 's'}`}
+                    style={({ pressed }) => [styles.starButton, pressed && styles.pressed]}
+                  >
+                    <Ionicons
+                      name={active ? 'star' : 'star-outline'}
+                      size={34}
+                      color="#F59E0B"
+                    />
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Input
+              value={comment}
+              onChangeText={onCommentChange}
+              placeholder="What should others know?"
+              multiline
+              textAlignVertical="top"
+              style={styles.reviewInput}
+            />
+
+            <Pressable
+              onPress={onSubmit}
+              disabled={submitting}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.primaryButton,
+                { backgroundColor: colors.primary },
+                pressed && styles.pressed,
+                submitting && styles.disabled,
+              ]}
+            >
+              <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.primaryButtonText}>
+                {submitting ? 'Saving...' : 'Save Review'}
+              </Text>
+            </Pressable>
           </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -1102,6 +1109,9 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.55,
+  },
+  modalKeyboardAvoider: {
+    flex: 1,
   },
   modalBackdrop: {
     flex: 1,
