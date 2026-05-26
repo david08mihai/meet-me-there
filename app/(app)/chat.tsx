@@ -268,7 +268,26 @@ export default function Chat() {
     });
 
     if (error) throw error;
+    const { data: participants, error: participantsError } = await supabase
+    .from("bookings")
+    .select("user_id")
+    .eq("event_id", event.event_id)
+      .eq("booking_status", "confirmed");
+    
+    console.log(participants, participantsError)
+    
+if (participantsError) throw participantsError;
+    for (const p of participants ?? []) {
+      if (p.user_id === user.id) continue;
 
+      await supabase.functions.invoke("send-notification", {
+        body: {
+          receiverId: p.user_id,
+          title: "You have a new message in the event chat!",
+          body: trimmed,
+        },
+      });
+    }
     setDraft('');
     await loadMessages(chat.chat_id, event);
   } catch (error) {
