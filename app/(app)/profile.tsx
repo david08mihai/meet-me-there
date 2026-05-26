@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '../../src/contexts/AuthContext';
+import { isLocalUser } from '../../src/lib/localAuth';
 import { supabase } from '../../src/lib/supabase';
 import { setThemeMode, theme } from '../../src/ui/theme';
 
@@ -118,13 +119,14 @@ type BusinessData = {
   logoUrl: string | null;
   locationText: string | null;
   rating: number | null;
+  trustScore: number | null;
   coverUrl: string | null;
 };
 
 type ActionFactory = (label: string) => () => void;
 
 export default function Profile() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, deleteAccount } = useAuth();
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
@@ -154,10 +156,7 @@ export default function Profile() {
     profileStorage.setItem(PROFILE_DARK_MODE_KEY, String(darkMode)).catch(() => {});
   }, [darkMode]);
 
-  const colors = useMemo(
-    () => (darkMode ? DARK_PROFILE_COLORS : LIGHT_PROFILE_COLORS),
-    [darkMode]
-  );
+  const colors = useMemo(() => (darkMode ? DARK_PROFILE_COLORS : LIGHT_PROFILE_COLORS), [darkMode]);
 
   useFocusEffect(
     useCallback(() => {
@@ -172,6 +171,39 @@ export default function Profile() {
         try {
           setLoading(true);
 
+          if (isLocalUser(user)) {
+            const type =
+              (user.user_metadata?.account_type as AccountType | undefined) ?? 'personal';
+            setAccountType(type);
+
+            if (type === 'business') {
+              setBusiness({
+                businessName:
+                  (user.user_metadata?.business_name as string | undefined) ??
+                  (user.user_metadata?.display_name as string | undefined) ??
+                  'Business',
+                logoUrl: null,
+                locationText: null,
+                rating: null,
+                trustScore: 50,
+                coverUrl: null,
+              });
+              setPersonal(null);
+            } else {
+              setPersonal({
+                fullName:
+                  (user.user_metadata?.full_name as string | undefined) ??
+                  (user.user_metadata?.display_name as string | undefined) ??
+                  'User',
+                photoUrl: null,
+                trustScore: 50,
+              });
+              setBusiness(null);
+            }
+
+            return;
+          }
+
           const { data: userRow, error: userError } = await supabase
             .from('users')
             .select('account_type')
@@ -185,64 +217,37 @@ export default function Profile() {
           setAccountType(type);
 
           if (type === 'personal') {
-            const [{ data: profileData, error: profileError }, { data: reviewsData, error: reviewsError }] =
-              await Promise.all([
-                supabase
-                  .from('personal_profiles')
-                  .select('full_name, photo_url, trust_score')
-                  .eq('user_id', user.id)
-                  .maybeSingle(),
-                supabase
-                  .from('reviews')
-                  .select('review_id')
-                  .eq('target_personal_profile_id', (
-                    await supabase
-                      .from('personal_profiles')
-                      .select('profile_id')
-                      .eq('user_id', user.id)
-                      .maybeSingle()
-                  ).data?.profile_id ?? -1),
-              ]);
+            const { data: profileData, error: profileError } = await supabase
+              .from('personal_profiles')
+              .select('full_name, photo_url, trust_score')
+              .eq('user_id', user.id)
+              .maybeSingle();
 
             if (profileError) throw profileError;
-            if (reviewsError) throw reviewsError;
             if (cancelled) return;
 
             setPersonal({
               fullName: profileData?.full_name ?? 'User',
               photoUrl: profileData?.photo_url ?? null,
-              trustScore: profileData?.trust_score ?? reviewsData?.length ?? 0,
+              trustScore: profileData?.trust_score ?? 50,
             });
             setBusiness(null);
           } else {
-            const [{ data: profileData, error: profileError }, { data: reviewsData, error: reviewsError }] =
-              await Promise.all([
-                supabase
-                  .from('business_profiles')
-                  .select('business_name, logo_url, location_text, rating_avg')
-                  .eq('user_id', user.id)
-                  .maybeSingle(),
-                supabase
-                  .from('reviews')
-                  .select('review_id')
-                  .eq('target_business_profile_id', (
-                    await supabase
-                      .from('business_profiles')
-                      .select('business_profile_id')
-                      .eq('user_id', user.id)
-                      .maybeSingle()
-                  ).data?.business_profile_id ?? -1),
-              ]);
+            const { data: profileData, error: profileError } = await supabase
+              .from('business_profiles')
+              .select('business_name, logo_url, location_text, rating_avg, trust_score')
+              .eq('user_id', user.id)
+              .maybeSingle();
 
             if (profileError) throw profileError;
-            if (reviewsError) throw reviewsError;
             if (cancelled) return;
 
             setBusiness({
               businessName: profileData?.business_name ?? 'Business',
               logoUrl: profileData?.logo_url ?? null,
               locationText: profileData?.location_text ?? null,
-              rating: profileData?.rating_avg ?? (reviewsData?.length ? 5 : null),
+              rating: profileData?.rating_avg ?? null,
+              trustScore: profileData?.trust_score ?? 50,
               coverUrl: (profileData as any)?.cover_url ?? null,
             });
             setPersonal(null);
@@ -263,7 +268,7 @@ export default function Profile() {
       return () => {
         cancelled = true;
       };
-    }, [user])
+    }, [user]),
   );
 
   const openProfileTool = (section: string) => {
@@ -283,18 +288,25 @@ export default function Profile() {
   const handleDeleteAccount = () => {
     Alert.alert(
       'Delete Account',
-      'For now, account deletion must be handled from a secure backend/admin flow. This action will log you out.',
+      'This permanently deletes your profile, bookings, reviews, messages, and created events. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Log Out',
+          text: 'Delete Account',
           style: 'destructive',
           onPress: async () => {
-            await signOut();
-            router.replace('/login');
+            try {
+              await deleteAccount();
+              router.replace('/welcome');
+            } catch (error) {
+              Alert.alert(
+                'Error',
+                error instanceof Error ? error.message : 'Failed to delete account'
+              );
+            }
           },
         },
-      ]
+      ],
     );
   };
 
@@ -311,7 +323,10 @@ export default function Profile() {
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.screen }]} edges={['top', 'left', 'right']}>
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: colors.screen }]}
+      edges={['top', 'left', 'right']}
+    >
       <View style={styles.header}>
         <Pressable
           onPress={() => router.back()}
@@ -418,7 +433,9 @@ function PersonalProfileView({
         </View>
 
         <Text style={[styles.displayName, { color: colors.bodyText }]}>{personal.fullName}</Text>
-        {username ? <Text style={[styles.username, { color: colors.mutedText }]}>{username}</Text> : null}
+        {username ? (
+          <Text style={[styles.username, { color: colors.mutedText }]}>{username}</Text>
+        ) : null}
 
         <View style={[styles.trustScorePill, { backgroundColor: colors.trustPill }]}>
           <View
@@ -434,9 +451,7 @@ function PersonalProfileView({
               {personal.trustScore ?? '—'}
             </Text>
           </View>
-          <Text style={[styles.trustScoreLabel, { color: colors.trustLabel }]}>
-            TRUST SCORE
-          </Text>
+          <Text style={[styles.trustScoreLabel, { color: colors.trustLabel }]}>TRUST SCORE</Text>
         </View>
 
         <Pressable
@@ -530,10 +545,7 @@ function BusinessProfileView({
       showsVerticalScrollIndicator={false}
     >
       <View
-        style={[
-          styles.businessCard,
-          { backgroundColor: colors.businessCard, shadowColor: '#000' },
-        ]}
+        style={[styles.businessCard, { backgroundColor: colors.businessCard, shadowColor: '#000' }]}
       >
         {business.coverUrl ? (
           <Image
@@ -542,22 +554,13 @@ function BusinessProfileView({
           />
         ) : (
           <View
-            style={[
-              styles.coverImage,
-              styles.coverFallback,
-              { backgroundColor: colors.rowCard },
-            ]}
+            style={[styles.coverImage, styles.coverFallback, { backgroundColor: colors.rowCard }]}
           >
             <Ionicons name="image-outline" size={32} color={colors.mutedText} />
           </View>
         )}
 
-        <View
-          style={[
-            styles.logoRing,
-            { borderColor: colors.card, backgroundColor: colors.card },
-          ]}
-        >
+        <View style={[styles.logoRing, { borderColor: colors.card, backgroundColor: colors.card }]}>
           {business.logoUrl ? (
             <Image
               source={{ uri: business.logoUrl }}
@@ -565,11 +568,7 @@ function BusinessProfileView({
             />
           ) : (
             <View
-              style={[
-                styles.logoImage,
-                styles.avatarFallback,
-                { backgroundColor: colors.rowCard },
-              ]}
+              style={[styles.logoImage, styles.avatarFallback, { backgroundColor: colors.rowCard }]}
             >
               <Ionicons name="business" size={32} color={colors.mutedText} />
             </View>
@@ -587,11 +586,15 @@ function BusinessProfileView({
                 {business.rating != null ? business.rating.toFixed(1) : '—'}
               </Text>
             </View>
-            <Text
-              style={[styles.locationText, { color: colors.locationText }]}
-              numberOfLines={1}
-            >
+            <Text style={[styles.locationText, { color: colors.locationText }]} numberOfLines={1}>
               {business.locationText ?? 'Location not set'}
+            </Text>
+          </View>
+
+          <View style={[styles.businessTrustPill, { backgroundColor: colors.trustPill }]}>
+            <Ionicons name="shield-checkmark-outline" size={14} color={colors.trustLabel} />
+            <Text style={[styles.businessTrustText, { color: colors.trustLabel }]}>
+              Trust Score {business.trustScore ?? 50}
             </Text>
           </View>
         </View>
@@ -751,10 +754,7 @@ function ListRow({
         <Ionicons name={icon} size={20} color={iconColor} />
       </View>
       <Text
-        style={[
-          styles.rowLabel,
-          { color: labelColor ?? colors?.bodyText ?? theme.colors.text },
-        ]}
+        style={[styles.rowLabel, { color: labelColor ?? colors?.bodyText ?? theme.colors.text }]}
       >
         {label}
       </Text>
@@ -967,6 +967,20 @@ const styles = StyleSheet.create({
   ratingValue: {
     fontSize: theme.fontSize.sm,
     fontWeight: '700',
+  },
+  businessTrustPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    borderRadius: theme.radius.full,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 5,
+    gap: theme.spacing.xs,
+    marginTop: theme.spacing.xs,
+  },
+  businessTrustText: {
+    fontSize: theme.fontSize.xs,
+    fontWeight: '800',
   },
   locationText: {
     flexShrink: 1,

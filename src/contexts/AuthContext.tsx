@@ -10,6 +10,7 @@ import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import {
   clearLocalSession,
+  deleteLocalAccount,
   getLocalSessionUser,
   isAuthNetworkError,
   isLocalUser,
@@ -21,6 +22,7 @@ type AuthContextValue = {
   session: Session | null;
   initializing: boolean;
   signOut: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
   setLocalSession: (user: User) => Promise<void>;
   reloadUser: () => Promise<void>;
   resendVerificationEmail: () => Promise<void>;
@@ -90,6 +92,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const deleteAccount = async () => {
+    if (!user) return;
+
+    if (isLocalUser(user)) {
+      await deleteLocalAccount(user.id);
+      setSession(null);
+      setUser(null);
+      setInitializing(false);
+      return;
+    }
+
+    const { error } = await supabase.rpc('delete_current_user');
+    if (error) throw error;
+
+    await clearLocalSession();
+    setSession(null);
+    setUser(null);
+    setInitializing(false);
+
+    try {
+      const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
+      if (signOutError && !isAuthNetworkError(signOutError)) throw signOutError;
+    } catch (error) {
+      if (!isAuthNetworkError(error)) throw error;
+    }
+  };
+
   const setLocalSession = async (localUser: User) => {
     await saveLocalSessionUser(localUser);
     setSession(null);
@@ -134,6 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         initializing,
         signOut,
+        deleteAccount,
         setLocalSession,
         reloadUser,
         resendVerificationEmail,

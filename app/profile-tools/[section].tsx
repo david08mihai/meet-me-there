@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ReactNode, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -268,7 +268,7 @@ function CreatedEvents() {
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<EventRow[]>([]);
 
-  const loadEvents = async () => {
+  const loadEvents = useCallback(async () => {
     if (!user) {
       setEvents([]);
       setLoading(false);
@@ -305,11 +305,11 @@ function CreatedEvents() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     loadEvents();
-  }, [user]);
+  }, [loadEvents]);
 
   const handleDelete = (event: EventRow) => {
     Alert.alert('Delete Event', `Delete "${event.title}"?`, [
@@ -406,50 +406,14 @@ function Reviews() {
       try {
         setLoading(true);
 
-        const { data: userRow, error: userError } = await supabase
-          .from('users')
-          .select('account_type')
-          .eq('user_id', user.id)
-          .maybeSingle();
+        const { data, error } = await supabase
+          .from('reviews')
+          .select('review_id, stars, comment, created_at')
+          .eq('target_user_id', user.id)
+          .order('created_at', { ascending: false });
 
-        if (userError) throw userError;
-        const type = (userRow?.account_type as AccountType) ?? 'personal';
-
-        if (type === 'business') {
-          const { data: businessProfile, error: profileError } = await supabase
-            .from('business_profiles')
-            .select('business_profile_id')
-            .eq('user_id', user.id)
-            .maybeSingle();
-
-          if (profileError) throw profileError;
-
-          const { data, error } = await supabase
-            .from('reviews')
-            .select('review_id, stars, comment, created_at')
-            .eq('target_business_profile_id', businessProfile?.business_profile_id ?? -1)
-            .order('created_at', { ascending: false });
-
-          if (error) throw error;
-          if (!cancelled) setReviews(data ?? []);
-        } else {
-          const { data: personalProfile, error: profileError } = await supabase
-            .from('personal_profiles')
-            .select('profile_id')
-            .eq('user_id', user.id)
-            .maybeSingle();
-
-          if (profileError) throw profileError;
-
-          const { data, error } = await supabase
-            .from('reviews')
-            .select('review_id, stars, comment, created_at')
-            .eq('target_personal_profile_id', personalProfile?.profile_id ?? -1)
-            .order('created_at', { ascending: false });
-
-          if (error) throw error;
-          if (!cancelled) setReviews(data ?? []);
-        }
+        if (error) throw error;
+        if (!cancelled) setReviews(data ?? []);
       } catch (error) {
         console.error(error);
         Alert.alert('Error', error instanceof Error ? error.message : 'Failed to load reviews');
@@ -529,11 +493,7 @@ function Stats() {
 
         const nowIso = new Date().toISOString();
 
-        const [
-          createdResult,
-          bookingsResult,
-          userTypeResult,
-        ] = await Promise.all([
+        const [createdResult, bookingsResult, reviewsResult] = await Promise.all([
           supabase
             .from('events')
             .select('event_id', { count: 'exact', head: true })
@@ -554,15 +514,14 @@ function Stats() {
             .eq('booking_status', 'confirmed'),
 
           supabase
-            .from('users')
-            .select('account_type')
-            .eq('user_id', user.id)
-            .maybeSingle(),
+            .from('reviews')
+            .select('review_id', { count: 'exact', head: true })
+            .eq('target_user_id', user.id),
         ]);
 
         if (createdResult.error) throw createdResult.error;
         if (bookingsResult.error) throw bookingsResult.error;
-        if (userTypeResult.error) throw userTypeResult.error;
+        if (reviewsResult.error) throw reviewsResult.error;
 
         const bookings = bookingsResult.data ?? [];
 
@@ -576,50 +535,12 @@ function Stats() {
           return start && start < nowIso;
         }).length;
 
-        const type = (userTypeResult.data?.account_type as AccountType) ?? 'personal';
-
-        let reviewsCount = 0;
-
-        if (type === 'business') {
-          const { data: profile, error: profileError } = await supabase
-            .from('business_profiles')
-            .select('business_profile_id')
-            .eq('user_id', user.id)
-            .maybeSingle();
-
-          if (profileError) throw profileError;
-
-          const { count, error } = await supabase
-            .from('reviews')
-            .select('review_id', { count: 'exact', head: true })
-            .eq('target_business_profile_id', profile?.business_profile_id ?? -1);
-
-          if (error) throw error;
-          reviewsCount = count ?? 0;
-        } else {
-          const { data: profile, error: profileError } = await supabase
-            .from('personal_profiles')
-            .select('profile_id')
-            .eq('user_id', user.id)
-            .maybeSingle();
-
-          if (profileError) throw profileError;
-
-          const { count, error } = await supabase
-            .from('reviews')
-            .select('review_id', { count: 'exact', head: true })
-            .eq('target_personal_profile_id', profile?.profile_id ?? -1);
-
-          if (error) throw error;
-          reviewsCount = count ?? 0;
-        }
-
         if (!cancelled) {
           setStats({
             created: createdResult.count ?? 0,
             upcomingBookings,
             attended,
-            reviews: reviewsCount,
+            reviews: reviewsResult.count ?? 0,
           });
         }
       } catch (error) {

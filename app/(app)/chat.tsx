@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -64,6 +64,8 @@ type DisplayMessage = {
   isDeleted: boolean;
 };
 
+type RealtimeStatus = 'connecting' | 'live' | 'fallback';
+
 export default function Chat() {
   const router = useRouter();
   const { user } = useAuth();
@@ -80,6 +82,8 @@ export default function Chat() {
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>('connecting');
+  const messagesScrollRef = useRef<ScrollView>(null);
 
   const loadMessages = useCallback(
     async (chatId: number, currentEvent: EventRow) => {
@@ -173,12 +177,26 @@ export default function Chat() {
         .from('event_chats')
         .select('chat_id, event_id')
         .eq('event_id', eventId)
-        .single();
+        .maybeSingle();
 
       if (chatError) throw chatError;
-      setChat(chatData);
 
-      await loadMessages(chatData.chat_id, eventData);
+      let nextChat = chatData;
+
+      if (!nextChat) {
+        const { data: createdChat, error: createChatError } = await supabase
+          .from('event_chats')
+          .upsert({ event_id: eventId }, { onConflict: 'event_id' })
+          .select('chat_id, event_id')
+          .single();
+
+        if (createChatError) throw createChatError;
+        nextChat = createdChat;
+      }
+
+      setChat(nextChat);
+
+      await loadMessages(nextChat.chat_id, eventData);
     } catch (error) {
       console.error(error);
       Alert.alert(
@@ -197,6 +215,18 @@ export default function Chat() {
   useEffect(() => {
     if (!chat?.chat_id || !event) return;
 
+    let active = true;
+
+    const syncMessages = async () => {
+      try {
+        await loadMessages(chat.chat_id, event);
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    setRealtimeStatus('connecting');
+
     const channel = supabase
       .channel(`chat-${chat.chat_id}`)
       .on(
@@ -208,79 +238,74 @@ export default function Chat() {
           filter: `chat_id=eq.${chat.chat_id}`,
         },
         async () => {
-          try {
-            await loadMessages(chat.chat_id, event);
-          } catch (error) {
-            console.error(error);
-          }
+          await syncMessages();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (!active) return;
+
+        if (status === 'SUBSCRIBED') {
+          setRealtimeStatus('live');
+          return;
+        }
+
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          setRealtimeStatus('fallback');
+        }
+      });
+
+    const fallbackTimer = setInterval(syncMessages, 3500);
 
     return () => {
+      active = false;
+      clearInterval(fallbackTimer);
       supabase.removeChannel(channel);
     };
   }, [chat?.chat_id, event, loadMessages]);
 
-  const resolveSenderName = useCallback(async () => {
-    if (!user) throw new Error('You must be logged in.');
-
-    const { data: personalProfile } = await supabase
-      .from('personal_profiles')
-      .select('full_name')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (personalProfile?.full_name) return personalProfile.full_name;
-
-    const { data: businessProfile } = await supabase
-      .from('business_profiles')
-      .select('business_name')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (businessProfile?.business_name) return businessProfile.business_name;
-
-    return user.email ?? 'Unknown user';
-  }, [user]);
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      messagesScrollRef.current?.scrollToEnd({ animated: true });
+    });
+  }, [messages.length]);
 
   const handleSend = async () => {
-  if (!user) {
-    Alert.alert('Error', 'You must be logged in to send messages.');
-    return;
-  }
+    if (!user) {
+      Alert.alert('Error', 'You must be logged in to send messages.');
+      return;
+    }
 
-  if (!chat || !event) {
-    Alert.alert('Error', 'Chat is not ready yet.');
-    return;
-  }
+    if (!chat || !event) {
+      Alert.alert('Error', 'Chat is not ready yet.');
+      return;
+    }
 
-  const trimmed = draft.trim();
-  if (!trimmed) return;
+    const trimmed = draft.trim();
+    if (!trimmed) return;
 
-  try {
-    setSending(true);
+    try {
+      setSending(true);
 
-    const { error } = await supabase.from('chat_messages').insert({
-      chat_id: chat.chat_id,
-      sender_user_id: user.id,
-      message_text: trimmed,
-    });
+      const { error } = await supabase.from('chat_messages').insert({
+        chat_id: chat.chat_id,
+        sender_user_id: user.id,
+        message_text: trimmed,
+      });
 
-    if (error) throw error;
+      if (error) throw error;
 
-    setDraft('');
-    await loadMessages(chat.chat_id, event);
-  } catch (error) {
-    console.error(error);
-    Alert.alert(
-      'Error',
-      error instanceof Error ? error.message : 'Failed to send message'
-    );
-  } finally {
-    setSending(false);
-  }
-};
+      setDraft('');
+      await loadMessages(chat.chat_id, event);
+    } catch (error) {
+      console.error(error);
+      Alert.alert(
+        'Error',
+        error instanceof Error ? error.message : 'Failed to send message'
+      );
+    } finally {
+      setSending(false);
+    }
+  };
 
   const handleMessageActions = (message: DisplayMessage) => {
     const canDelete = user?.id === message.senderUserId;
@@ -328,6 +353,7 @@ export default function Chat() {
               .eq('message_id', message.id);
 
             if (error) throw error;
+            if (chat && event) await loadMessages(chat.chat_id, event);
           } catch (error) {
             Alert.alert(
               'Error',
@@ -394,10 +420,16 @@ export default function Chat() {
           <Text style={[styles.eventTitle, { color: colors.text }]} numberOfLines={1}>
             {event.title}
           </Text>
-          <Text style={[styles.onlineText, { color: colors.success }]}>Live event chat</Text>
+          <Text style={[styles.onlineText, { color: colors.success }]}>
+            {realtimeStatus === 'live' ? 'Live event chat' : 'Syncing event chat'}
+          </Text>
         </View>
 
-        <ScrollView contentContainerStyle={styles.messages} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          ref={messagesScrollRef}
+          contentContainerStyle={styles.messages}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={[styles.dateSeparator, { backgroundColor: colors.border }]}>
             <Text style={[styles.dateSeparatorText, { color: colors.textMuted }]}>TODAY</Text>
           </View>

@@ -557,22 +557,29 @@ function MapView({
 
   const panStartRef = useRef<{ lastDx: number; lastDy: number } | null>(null);
   const zoomRef = useRef(zoom);
+  const selectedEventId = selectedEvent?.id;
+  const selectedLatitude = selectedEvent?.latitude;
+  const selectedLongitude = selectedEvent?.longitude;
 
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
 
   useEffect(() => {
-    // When a search result is selected, pan to the event location
-    if (selectedEvent && selectedEvent.latitude !== null && selectedEvent.longitude !== null) {
+    if (
+      selectedLatitude !== undefined &&
+      selectedLatitude !== null &&
+      selectedLongitude !== undefined &&
+      selectedLongitude !== null
+    ) {
       centerRef.current = {
-        latitude: selectedEvent.latitude,
-        longitude: selectedEvent.longitude,
+        latitude: selectedLatitude,
+        longitude: selectedLongitude,
       };
       setZoom(13);
       forceUpdate((n) => n + 1);
     }
-  }, [selectedEvent?.id]);
+  }, [selectedEventId, selectedLatitude, selectedLongitude]);
 
   const center = centerRef.current;
   const mapWidth = mapSize.width || 360;
