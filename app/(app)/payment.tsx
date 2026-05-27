@@ -189,7 +189,7 @@ export default function ReviewPurchase() {
     }
 
     const paymentMethod =
-      method === 'apple' ? 'apple_pay' : 'card';
+      method === 'apple' ? 'apple_pay_simulated' : 'card_simulated';
 
     const { data: existingPayment, error: paymentLookupError } = await supabase
       .from('payments')
@@ -252,7 +252,7 @@ export default function ReviewPurchase() {
       setProcessing(true);
       await upsertBookingAndPayment();
 
-      Alert.alert('Payment complete', 'Your booking is confirmed.', [
+      Alert.alert('Demo payment complete', 'Your booking is confirmed. No real charge was made.', [
         { text: 'OK', onPress: () => router.replace('/bookings') },
       ]);
     } catch (error) {
@@ -359,7 +359,7 @@ export default function ReviewPurchase() {
 
             <View style={[styles.priceBadge, { backgroundColor: `${colors.success}22` }]}>
               <Text style={[styles.priceText, { color: colors.success }]}>
-                ${total.toFixed(2)}
+                {total.toFixed(2)} RON
               </Text>
             </View>
           </View>
@@ -370,13 +370,16 @@ export default function ReviewPurchase() {
               { backgroundColor: colors.surface, borderColor: colors.border },
             ]}
           >
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Payment Method</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Demo Payment Method</Text>
+            <Text style={[styles.demoNotice, { color: colors.textMuted }]}>
+              No real charge will be made in this build.
+            </Text>
 
             <PaymentOption
               active={method === 'apple'}
               icon="logo-apple"
-              title="Apple Pay"
-              subtitle="Pay with your device wallet"
+              title="Demo Apple Pay"
+              subtitle="Simulates a device wallet payment"
               onPress={() => {
                 setMethod('apple');
                 setErrors({});
@@ -387,8 +390,8 @@ export default function ReviewPurchase() {
             <PaymentOption
               active={method === 'card'}
               icon="card-outline"
-              title="Credit Card"
-              subtitle="Enter card details below"
+              title="Demo Card"
+              subtitle="Validates card-like details without charging"
               onPress={() => {
                 setMethod('card');
                 setBanner(null);
@@ -403,7 +406,7 @@ export default function ReviewPurchase() {
                 { backgroundColor: colors.surface, borderColor: colors.border },
               ]}
             >
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Credit Card</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Demo Card</Text>
 
               <Field label="Card Number" error={errors.cardNumber}>
                 <Input
@@ -470,12 +473,12 @@ export default function ReviewPurchase() {
             ]}
           >
             <Text style={styles.payButtonText}>
-              {processing ? 'Processing...' : `Pay Now • $${total.toFixed(2)}`}
+              {processing ? 'Processing...' : `Confirm Demo Payment • ${total.toFixed(2)} RON`}
             </Text>
           </Pressable>
 
           <Text style={[styles.termsText, { color: colors.textMuted }]}>
-            By clicking "Pay Now", you agree to our{' '}
+            By clicking "Confirm Demo Payment", you agree to our{' '}
             <Text style={[styles.linkText, { color: colors.primary }]} onPress={() => Alert.alert('Terms of Service')}>
               Terms of Service
             </Text>{' '}
@@ -623,6 +626,11 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: theme.fontSize.lg,
     fontWeight: '900',
+  },
+  demoNotice: {
+    fontSize: theme.fontSize.sm,
+    lineHeight: 20,
+    marginTop: -theme.spacing.sm,
   },
   paymentOption: {
     minHeight: 70,

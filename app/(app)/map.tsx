@@ -59,6 +59,7 @@ type EventItem = {
   description: string;
   imageUrl: string | null;
   startsAt: string;
+  endsAt: string;
   venue: string;
   latitude: number | null;
   longitude: number | null;
@@ -225,6 +226,7 @@ export default function ExploreMap() {
           `
           )
           .eq('status', 'published')
+          .gte('end_datetime', new Date().toISOString())
           .order('start_datetime', { ascending: true }),
 
         supabase
@@ -277,6 +279,7 @@ export default function ExploreMap() {
           description: event.description,
           imageUrl: event.cover_image_url,
           startsAt: event.start_datetime,
+          endsAt: event.end_datetime,
           venue: event.location_text,
           latitude: event.latitude,
           longitude: event.longitude,
@@ -310,6 +313,8 @@ export default function ExploreMap() {
   const visibleEvents = useMemo(() => {
     return events.filter((event) => {
       const startsAt = new Date(event.startsAt);
+      const endsAt = new Date(event.endsAt);
+      const isUpcomingOrLive = endsAt.getTime() >= Date.now();
 
       const dateOk = isDateMatch(startsAt, dateFilter);
       const timeOk = isTimeMatch(startsAt, timeFilter);
@@ -318,7 +323,7 @@ export default function ExploreMap() {
         selectedTags.every((tag) => event.tags.includes(tag));
       const searchOk = searchQuery === '' || event.title.toLowerCase().includes(searchQuery.toLowerCase());
 
-      return dateOk && timeOk && tagsOk && searchOk;
+      return isUpcomingOrLive && dateOk && timeOk && tagsOk && searchOk;
     });
   }, [dateFilter, events, searchQuery, selectedTags, timeFilter]);
 

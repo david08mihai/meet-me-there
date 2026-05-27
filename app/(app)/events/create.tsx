@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
   KeyboardAvoidingView,
   LayoutChangeEvent,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -85,6 +86,10 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+function wrapLongitude(longitude: number) {
+  return ((((longitude + 180) % 360) + 360) % 360) - 180;
+}
+
 function tileUrl(zoom: number, x: number, y: number) {
   const max = 2 ** zoom;
   const wrappedX = ((x % max) + max) % max;
@@ -130,9 +135,17 @@ export default function CreateEvent() {
 
   const [mapRegion, setMapRegion] = useState<MapRegion>('romania');
   const [mapZoom, setMapZoom] = useState<number>(REGIONS.romania.zoom);
+  const [mapCenter, setMapCenter] = useState({
+    latitude: REGIONS.romania.latitude,
+    longitude: REGIONS.romania.longitude,
+  });
   const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
   const [pickedLatitude, setPickedLatitude] = useState<number | null>(null);
   const [pickedLongitude, setPickedLongitude] = useState<number | null>(null);
+  const panStartRef = useRef<{ lastDx: number; lastDy: number; moved: boolean } | null>(null);
+  const mapCenterRef = useRef(mapCenter);
+  const mapSizeRef = useRef(mapSize);
+  const mapZoomRef = useRef(mapZoom);
 
   useEffect(() => {
     const loadTags = async () => {
@@ -161,12 +174,25 @@ export default function CreateEvent() {
   }, []);
 
   useEffect(() => {
-    setMapZoom(REGIONS[mapRegion].zoom);
+    const region = REGIONS[mapRegion];
+    setMapZoom(region.zoom);
+    setMapCenter({ latitude: region.latitude, longitude: region.longitude });
   }, [mapRegion]);
+
+  useEffect(() => {
+    mapCenterRef.current = mapCenter;
+  }, [mapCenter]);
+
+  useEffect(() => {
+    mapSizeRef.current = mapSize;
+  }, [mapSize]);
+
+  useEffect(() => {
+    mapZoomRef.current = mapZoom;
+  }, [mapZoom]);
 
   const visibleTags = showMoreTags ? availableTags : availableTags.slice(0, 6);
 
-  const mapCenter = REGIONS[mapRegion];
   const mapWidth = mapSize.width || 320;
   const mapHeight = mapSize.height || 220;
   const centerTileX = lonToTileX(mapCenter.longitude, mapZoom);
@@ -212,19 +238,82 @@ export default function CreateEvent() {
     setMapSize({ width, height });
   };
 
-  const handleMapPress = (event: any) => {
+  const handleMapPress = useCallback((event: any) => {
     const { locationX, locationY } = event.nativeEvent;
+    const currentCenter = mapCenterRef.current;
+    const currentZoom = mapZoomRef.current;
+    const currentMapWidth = mapSizeRef.current.width || 320;
+    const currentMapHeight = mapSizeRef.current.height || 220;
+    const currentCenterTileX = lonToTileX(currentCenter.longitude, currentZoom);
+    const currentCenterTileY = latToTileY(currentCenter.latitude, currentZoom);
 
-    const tileX = centerTileX + (locationX - mapWidth / 2) / TILE_SIZE;
-    const tileY = centerTileY + (locationY - mapHeight / 2) / TILE_SIZE;
+    const tileX = currentCenterTileX + (locationX - currentMapWidth / 2) / TILE_SIZE;
+    const tileY = currentCenterTileY + (locationY - currentMapHeight / 2) / TILE_SIZE;
 
-    const latitude = clamp(tileYToLat(tileY, mapZoom), -85, 85);
-    const longitude = tileXToLon(tileX, mapZoom);
+    const latitude = clamp(tileYToLat(tileY, currentZoom), -85, 85);
+    const longitude = wrapLongitude(tileXToLon(tileX, currentZoom));
 
     setPickedLatitude(latitude);
     setPickedLongitude(longitude);
     setErrors((current) => ({ ...current, map: undefined }));
-  };
+  }, []);
+
+  const mapPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_event, gestureState) =>
+          Math.abs(gestureState.dx) > 3 || Math.abs(gestureState.dy) > 3,
+        onPanResponderGrant: () => {
+          panStartRef.current = { lastDx: 0, lastDy: 0, moved: false };
+        },
+        onPanResponderMove: (_event, gestureState) => {
+          if (!panStartRef.current) return;
+
+          const deltaX = gestureState.dx - panStartRef.current.lastDx;
+          const deltaY = gestureState.dy - panStartRef.current.lastDy;
+
+          if (Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4) {
+            panStartRef.current.moved = true;
+          }
+
+          panStartRef.current.lastDx = gestureState.dx;
+          panStartRef.current.lastDy = gestureState.dy;
+
+          setMapCenter((current) => {
+            const currentZoom = mapZoomRef.current;
+            const currentTileX = lonToTileX(current.longitude, currentZoom);
+            const currentTileY = latToTileY(current.latitude, currentZoom);
+            const nextTileX = currentTileX - deltaX / TILE_SIZE;
+            const nextTileY = clamp(
+              currentTileY - deltaY / TILE_SIZE,
+              0.0001,
+              2 ** currentZoom - 0.0001
+            );
+
+            const nextCenter = {
+              latitude: clamp(tileYToLat(nextTileY, currentZoom), -85, 85),
+              longitude: wrapLongitude(tileXToLon(nextTileX, currentZoom)),
+            };
+
+            mapCenterRef.current = nextCenter;
+            return nextCenter;
+          });
+        },
+        onPanResponderRelease: (event) => {
+          const wasMoved = panStartRef.current?.moved;
+          panStartRef.current = null;
+
+          if (!wasMoved) {
+            handleMapPress(event);
+          }
+        },
+        onPanResponderTerminate: () => {
+          panStartRef.current = null;
+        },
+      }),
+    [handleMapPress]
+  );
 
   const pickCover = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -320,8 +409,8 @@ const uploadCoverImage = async () => {
   if (!coverUri || !user) return null;
 
   const fileExt = coverUri.split('.').pop()?.toLowerCase() ?? 'jpg';
-  const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-  const filePath = `covers/${fileName}`;
+  const fileName = `${Date.now()}.${fileExt}`;
+  const filePath = `covers/${user.id}/${fileName}`;
 
   const base64 = await FileSystem.readAsStringAsync(coverUri, {
     encoding: 'base64',
@@ -647,7 +736,10 @@ const uploadCoverImage = async () => {
                     </View>
                   ))}
 
-                  <Pressable style={styles.mapTapLayer} onPress={handleMapPress} />
+                  <View
+                    style={[styles.mapGestureLayer, { touchAction: 'none' } as any]}
+                    {...mapPanResponder.panHandlers}
+                  />
 
                   {pickedMarkerPosition ? (
                     <View
@@ -798,7 +890,7 @@ const uploadCoverImage = async () => {
                   keyboardType="decimal-pad"
                   placeholder="25"
                   error={errors.price}
-                  leftElement={<Text style={styles.currencyPrefix}>$</Text>}
+                  leftElement={<Text style={styles.currencyPrefix}>RON</Text>}
                 />
               </Field>
             ) : null}
@@ -939,6 +1031,7 @@ const styles = StyleSheet.create({
   },
   textArea: {
     minHeight: 118,
+    maxHeight: 180,
     paddingTop: theme.spacing.md,
   },
   tagWrap: {
@@ -998,8 +1091,9 @@ const styles = StyleSheet.create({
     width: TILE_SIZE,
     height: TILE_SIZE,
   },
-  mapTapLayer: {
+  mapGestureLayer: {
     ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
   },
   selectedMarker: {
     position: 'absolute',
@@ -1010,6 +1104,7 @@ const styles = StyleSheet.create({
     right: theme.spacing.sm,
     top: theme.spacing.sm,
     gap: theme.spacing.xs,
+    zIndex: 10,
   },
   mapControlButton: {
     width: 38,

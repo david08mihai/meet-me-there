@@ -5,8 +5,10 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '../../src/contexts/AuthContext';
+import { uploadProfileImage } from '../../src/lib/profileImages';
 import { supabase } from '../../src/lib/supabase';
 import { Input } from '../../src/ui/Input';
+import { PhotoPicker } from '../../src/ui/PhotoPicker';
 import { ScreenHeader } from '../../src/ui/ScreenHeader';
 import { theme, useThemeColors } from '../../src/ui/theme';
 
@@ -113,11 +115,13 @@ function EditProfile() {
   const colors = useThemeColors();
 
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [accountType, setAccountType] = useState<AccountType>('personal');
 
   const [displayName, setDisplayName] = useState('');
   const [location, setLocation] = useState('');
   const [shortDescription, setShortDescription] = useState('');
+  const [profileImageUri, setProfileImageUri] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -146,7 +150,7 @@ function EditProfile() {
         if (type === 'business') {
           const { data, error } = await supabase
             .from('business_profiles')
-            .select('business_name, location_text, short_description')
+            .select('business_name, location_text, short_description, logo_url')
             .eq('user_id', user.id)
             .maybeSingle();
 
@@ -156,10 +160,11 @@ function EditProfile() {
           setDisplayName(data?.business_name ?? '');
           setLocation(data?.location_text ?? '');
           setShortDescription(data?.short_description ?? '');
+          setProfileImageUri(data?.logo_url ?? null);
         } else {
           const { data, error } = await supabase
             .from('personal_profiles')
-            .select('full_name')
+            .select('full_name, photo_url')
             .eq('user_id', user.id)
             .maybeSingle();
 
@@ -169,6 +174,7 @@ function EditProfile() {
           setDisplayName(data?.full_name ?? '');
           setLocation('');
           setShortDescription('');
+          setProfileImageUri(data?.photo_url ?? null);
         }
       } catch (error) {
         console.error(error);
@@ -187,8 +193,12 @@ function EditProfile() {
 
   const handleSave = async () => {
     if (!user) return;
+    if (saving) return;
 
     try {
+      setSaving(true);
+      const uploadedImageUrl = await uploadProfileImage(profileImageUri, user.id);
+
       if (accountType === 'business') {
         const { error } = await supabase
           .from('business_profiles')
@@ -196,24 +206,30 @@ function EditProfile() {
             business_name: displayName.trim(),
             location_text: location.trim() || null,
             short_description: shortDescription.trim() || null,
+            logo_url: uploadedImageUrl,
           })
           .eq('user_id', user.id);
 
         if (error) throw error;
+        setProfileImageUri(uploadedImageUrl);
       } else {
         const { error } = await supabase
           .from('personal_profiles')
           .update({
             full_name: displayName.trim(),
+            photo_url: uploadedImageUrl,
           })
           .eq('user_id', user.id);
 
         if (error) throw error;
+        setProfileImageUri(uploadedImageUrl);
       }
 
       Alert.alert('Profile saved', 'Your profile details were saved.');
     } catch (error) {
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to save profile');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -229,6 +245,15 @@ function EditProfile() {
 
   return (
     <View style={[styles.formCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+      <Field label={accountType === 'business' ? 'Business Logo' : 'Profile Photo'}>
+        <PhotoPicker
+          value={profileImageUri}
+          onChange={setProfileImageUri}
+          shape={accountType === 'business' ? 'square' : 'circle'}
+          placeholderLabel={accountType === 'business' ? 'Add logo' : 'Add photo'}
+        />
+      </Field>
+
       <Field label={accountType === 'business' ? 'Business Name' : 'Full Name'}>
         <Input value={displayName} onChangeText={setDisplayName} placeholder="Your name" />
       </Field>
@@ -256,7 +281,11 @@ function EditProfile() {
         </>
       ) : null}
 
-      <PrimaryAction label="Save Profile" icon="save-outline" onPress={handleSave} />
+      <PrimaryAction
+        label={saving ? 'Saving...' : 'Save Profile'}
+        icon="save-outline"
+        onPress={handleSave}
+      />
     </View>
   );
 }
@@ -311,23 +340,22 @@ function CreatedEvents() {
     loadEvents();
   }, [loadEvents]);
 
-  const handleDelete = (event: EventRow) => {
-    Alert.alert('Delete Event', `Delete "${event.title}"?`, [
-      { text: 'Cancel', style: 'cancel' },
+  const handleCancel = (event: EventRow) => {
+    Alert.alert('Cancel Event', `Cancel "${event.title}"?`, [
+      { text: 'Keep Event', style: 'cancel' },
       {
-        text: 'Delete',
+        text: 'Cancel Event',
         style: 'destructive',
         onPress: async () => {
           try {
-            const { error } = await supabase
-              .from('events')
-              .delete()
-              .eq('event_id', event.event_id);
+            const { error } = await supabase.rpc('cancel_own_event', {
+              p_event_id: event.event_id,
+            });
 
             if (error) throw error;
             await loadEvents();
           } catch (error) {
-            Alert.alert('Error', error instanceof Error ? error.message : 'Failed to delete event');
+            Alert.alert('Error', error instanceof Error ? error.message : 'Failed to cancel event');
           }
         },
       },
@@ -375,13 +403,20 @@ function CreatedEvents() {
             </Text>
           </Pressable>
 
-          <Pressable
-            onPress={() => handleDelete(event)}
-            style={({ pressed }) => [styles.destructiveInline, pressed && styles.pressed]}
-          >
-            <Ionicons name="trash-outline" size={17} color={colors.error} />
-            <Text style={[styles.destructiveInlineText, { color: colors.error }]}>Delete event</Text>
-          </Pressable>
+          {event.status === 'cancelled' ? (
+            <View style={styles.cancelledInline}>
+              <Ionicons name="ban-outline" size={17} color={colors.textMuted} />
+              <Text style={[styles.cancelledInlineText, { color: colors.textMuted }]}>Cancelled</Text>
+            </View>
+          ) : (
+            <Pressable
+              onPress={() => handleCancel(event)}
+              style={({ pressed }) => [styles.destructiveInline, pressed && styles.pressed]}
+            >
+              <Ionicons name="ban-outline" size={17} color={colors.error} />
+              <Text style={[styles.destructiveInlineText, { color: colors.error }]}>Cancel event</Text>
+            </Pressable>
+          )}
         </View>
       ))}
     </View>
@@ -893,6 +928,18 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.sm,
   },
   destructiveInlineText: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: '800',
+  },
+  cancelledInline: {
+    alignSelf: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+  },
+  cancelledInlineText: {
     fontSize: theme.fontSize.sm,
     fontWeight: '800',
   },

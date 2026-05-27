@@ -275,7 +275,7 @@ export default function EventDetails() {
             avatarUrl: organizerBusinessResult.data.logo_url,
             rating: organizerBusinessResult.data.rating_avg ?? 0,
             ratingCount: organizerBusinessResult.data.rating_count ?? 0,
-            trustScore: organizerBusinessResult.data.trust_score ?? 50,
+            trustScore: organizerBusinessResult.data.trust_score ?? 0,
           }
         : {
             type: 'personal',
@@ -283,7 +283,7 @@ export default function EventDetails() {
             profileId: organizerPersonalResult.data?.profile_id ?? null,
             name: organizerPersonalResult.data?.full_name ?? 'Unknown user',
             avatarUrl: organizerPersonalResult.data?.photo_url ?? null,
-            trustScore: organizerPersonalResult.data?.trust_score ?? 50,
+            trustScore: organizerPersonalResult.data?.trust_score ?? 0,
           };
 
       const tags = (tagsResult.data ?? [])
@@ -372,11 +372,9 @@ export default function EventDetails() {
         style: 'destructive',
         onPress: async () => {
           try {
-            const { error } = await supabase
-              .from('bookings')
-              .update({ booking_status: 'cancelled' })
-              .eq('event_id', event.eventId)
-              .eq('user_id', user.id);
+            const { error } = await supabase.rpc('cancel_own_booking', {
+              p_event_id: event.eventId,
+            });
 
             if (error) throw error;
 
@@ -773,7 +771,7 @@ function OrganizerCard({
               <View style={[styles.trustBadge, { backgroundColor: trustBg }]}>
                 <Ionicons name="shield-checkmark-outline" size={15} color={trustTextColor} />
                 <Text style={[styles.trustText, { color: trustTextColor }]}>
-                  Trust Score: {organizer.trustScore ?? 50}
+                  Trust Score: {organizer.trustScore ?? 0}
                 </Text>
               </View>
             </>

@@ -1,0 +1,2 @@
+-- Seed data that must always exist is inserted idempotently by migrations.
+-- Keep this file so `supabase db reset` has a valid configured seed path.

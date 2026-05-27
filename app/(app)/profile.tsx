@@ -185,7 +185,7 @@ export default function Profile() {
                 logoUrl: null,
                 locationText: null,
                 rating: null,
-                trustScore: 50,
+                trustScore: 0,
                 coverUrl: null,
               });
               setPersonal(null);
@@ -196,7 +196,7 @@ export default function Profile() {
                   (user.user_metadata?.display_name as string | undefined) ??
                   'User',
                 photoUrl: null,
-                trustScore: 50,
+                trustScore: 0,
               });
               setBusiness(null);
             }
@@ -229,7 +229,7 @@ export default function Profile() {
             setPersonal({
               fullName: profileData?.full_name ?? 'User',
               photoUrl: profileData?.photo_url ?? null,
-              trustScore: profileData?.trust_score ?? 50,
+              trustScore: profileData?.trust_score ?? 0,
             });
             setBusiness(null);
           } else {
@@ -247,7 +247,7 @@ export default function Profile() {
               logoUrl: profileData?.logo_url ?? null,
               locationText: profileData?.location_text ?? null,
               rating: profileData?.rating_avg ?? null,
-              trustScore: profileData?.trust_score ?? 50,
+              trustScore: profileData?.trust_score ?? 0,
               coverUrl: (profileData as any)?.cover_url ?? null,
             });
             setPersonal(null);
@@ -594,7 +594,7 @@ function BusinessProfileView({
           <View style={[styles.businessTrustPill, { backgroundColor: colors.trustPill }]}>
             <Ionicons name="shield-checkmark-outline" size={14} color={colors.trustLabel} />
             <Text style={[styles.businessTrustText, { color: colors.trustLabel }]}>
-              Trust Score {business.trustScore ?? 50}
+              Trust Score {business.trustScore ?? 0}
             </Text>
           </View>
         </View>

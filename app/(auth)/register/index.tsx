@@ -7,6 +7,7 @@ import {
   createLocalAccount,
   isAuthNetworkError,
 } from '../../../src/lib/localAuth';
+import { uploadProfileImage } from '../../../src/lib/profileImages';
 import { supabase } from '../../../src/lib/supabase';
 import {
   validateAcceptedTerms,
@@ -27,6 +28,7 @@ import { DateField } from '../../../src/ui/DateField';
 import { ErrorBanner } from '../../../src/ui/ErrorBanner';
 import { FormField } from '../../../src/ui/FormField';
 import { Input } from '../../../src/ui/Input';
+import { PhotoPicker } from '../../../src/ui/PhotoPicker';
 import { Screen } from '../../../src/ui/Screen';
 import { theme, useThemeColors } from '../../../src/ui/theme';
 import { registerForPushNotificationsAsync } from '../../../src/lib/notifications';
@@ -104,6 +106,8 @@ export default function RegisterAccountType() {
   const [accountType, setAccountType] = useState<AccountType>('personal');
   const [personal, setPersonal] = useState<PersonalForm>(emptyPersonal);
   const [business, setBusiness] = useState<BusinessForm>(emptyBusiness);
+  const [personalPhotoUri, setPersonalPhotoUri] = useState<string | null>(null);
+  const [businessLogoUri, setBusinessLogoUri] = useState<string | null>(null);
   const [personalErrors, setPersonalErrors] = useState<PersonalErrors>({});
   const [businessErrors, setBusinessErrors] = useState<BusinessErrors>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -228,6 +232,8 @@ if (token) {
 
         if (userInsertError) throw userInsertError;
 
+        const photoUrl = await uploadProfileImage(personalPhotoUri, data.user.id);
+
         const { error: personalInsertError } = await supabase
           .from('personal_profiles')
           .insert({
@@ -235,7 +241,7 @@ if (token) {
             full_name: personal.name.trim(),
             date_of_birth: personal.dateOfBirth ? toYMD(personal.dateOfBirth) : null,
             gender: personal.gender,
-            photo_url: null,
+            photo_url: photoUrl,
           });
 
         if (personalInsertError) throw personalInsertError;
@@ -269,6 +275,8 @@ if (token) {
 
         if (userInsertError) throw userInsertError;
 
+        const logoUrl = await uploadProfileImage(businessLogoUri, data.user.id);
+
         const { error: businessInsertError } = await supabase
           .from('business_profiles')
           .insert({
@@ -277,7 +285,7 @@ if (token) {
             business_category: business.category.trim(),
             short_description: business.shortDescription.trim(),
             contact_person_name: business.contactPerson.trim(),
-            logo_url: null,
+            logo_url: logoUrl,
             location_text: null,
             website: business.website.trim() || null,
             social_media_link: business.socialMedia.trim() || null,
@@ -389,7 +397,11 @@ if (token) {
         {accountType === 'personal' ? (
           <>
             <FormField label="Photo (optional)">
-              <UploadBox title="Upload profile photo" />
+              <PhotoPicker
+                value={personalPhotoUri}
+                onChange={setPersonalPhotoUri}
+                placeholderLabel="Add photo"
+              />
             </FormField>
 
             <FormField label="Email" required error={personalErrors.email}>
@@ -483,7 +495,12 @@ if (token) {
         ) : (
           <>
             <FormField label="Logo (optional)">
-              <UploadBox title="Upload business logo" />
+              <PhotoPicker
+                value={businessLogoUri}
+                onChange={setBusinessLogoUri}
+                shape="square"
+                placeholderLabel="Add logo"
+              />
             </FormField>
 
             <FormField label="Business Name" required error={businessErrors.businessName}>
@@ -766,28 +783,6 @@ function AccountTypeButton({
   );
 }
 
-function UploadBox({ title }: { title: string }) {
-  const colors = useThemeColors();
-
-  return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.uploadBox,
-        {
-          borderColor: colors.border,
-          backgroundColor: colors.background,
-        },
-        pressed && styles.pressed,
-      ]}
-    >
-      <Text style={[styles.uploadTitle, { color: colors.text }]}>{title}</Text>
-      <Text style={[styles.uploadText, { color: colors.textMuted }]}>
-        Tap to choose an image later
-      </Text>
-    </Pressable>
-  );
-}
-
 function TermsCheckbox({
   checked,
   error,
@@ -898,28 +893,6 @@ const styles = StyleSheet.create({
   accountTypeTextSelected: {
     color: '#fff',
     fontWeight: '700',
-  },
-
-  uploadBox: {
-    minHeight: 96,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderRadius: theme.radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.lg,
-    gap: theme.spacing.xs,
-  },
-
-  uploadTitle: {
-    fontSize: theme.fontSize.md,
-    fontWeight: '600',
-  },
-
-  uploadText: {
-    fontSize: theme.fontSize.sm,
-    textAlign: 'center',
   },
 
   dateGenderRow: {
