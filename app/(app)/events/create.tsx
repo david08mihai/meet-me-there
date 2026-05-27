@@ -425,7 +425,7 @@ const uploadCoverImage = async () => {
       <ScreenHeader title="Create Event" onBack={() => router.back()} />
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.flex}
       >
         <ScrollView

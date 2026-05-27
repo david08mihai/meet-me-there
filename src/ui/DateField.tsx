@@ -137,7 +137,6 @@ function NativeDateField(props: Props) {
           onChange={handleAndroidChange}
           maximumDate={maximumDate}
           minimumDate={minimumDate}
-          themeVariant="light"
         />
       ) : null}
 
@@ -189,7 +188,6 @@ function NativeDateField(props: Props) {
                   onChange={handleIosChange}
                   maximumDate={maximumDate}
                   minimumDate={minimumDate}
-                  themeVariant="light"
                   textColor={colors.text}
                   accentColor={colors.primary}
                   style={[styles.iosPicker, { backgroundColor: colors.surface }]}

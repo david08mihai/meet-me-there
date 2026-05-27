@@ -16,6 +16,7 @@ type LocalAccount = {
 
 const ACCOUNTS_KEY = 'meet-me-there:local-accounts';
 const SESSION_KEY = 'meet-me-there:local-session';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const storage = {
   async getItem(key: string) {
@@ -85,6 +86,10 @@ export function isAuthNetworkError(error: unknown) {
 
 export function isLocalUser(user: User | null | undefined) {
   return Boolean(user?.user_metadata?.is_local);
+}
+
+export function hasSupabaseUserId(user: User | null | undefined): user is User {
+  return Boolean(user?.id && UUID_PATTERN.test(user.id));
 }
 
 export async function createLocalAccount(input: {

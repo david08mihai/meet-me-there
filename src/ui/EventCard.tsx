@@ -52,7 +52,7 @@ export function EventCard({ event, onPress, variant = 'default' }: EventCardProp
     <View
       style={[
         styles.card,
-        { backgroundColor: colors.card, borderColor: colors.border },
+        { backgroundColor: colors.surface, borderColor: colors.border },
         isCompact && styles.compactCard,
       ]}
     >

@@ -314,7 +314,7 @@ export default function ReviewPurchase() {
       <ScreenHeader title="Review Purchase" onBack={() => router.back()} />
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.flex}
       >
         <ScrollView

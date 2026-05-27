@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '../../src/contexts/AuthContext';
+import { hasSupabaseUserId } from '../../src/lib/localAuth';
 import { supabase } from '../../src/lib/supabase';
 import { Select } from '../../src/ui/Select';
 import { theme, useThemeColors } from '../../src/ui/theme';
@@ -58,7 +59,7 @@ export default function Bookings() {
   const [loading, setLoading] = useState(true);
 
   const loadBookings = useCallback(async () => {
-    if (!user) {
+    if (!hasSupabaseUserId(user)) {
       setEvents([]);
       setLoading(false);
       return;
@@ -89,13 +90,14 @@ export default function Bookings() {
         `
         )
         .eq('user_id', user.id)
-        .order('joined_at', { ascending: false });
+        .order('joined_at', { ascending: false })
+        .returns<BookingRow[]>();
 
       if (error) throw error;
 
       const now = new Date();
 
-      const mapped: BookingCardItem[] = ((data ?? []) as BookingRow[])
+      const mapped: BookingCardItem[] = (data ?? [])
         .filter((row) => row.events)
         .map((row) => ({
           bookingId: row.booking_id,
@@ -287,6 +289,13 @@ function BookingCard({
         </Text>
         <Text style={[styles.cardMeta, { color: colors.textMuted }]}>Status: {event.bookingStatus}</Text>
       </View>
+
+      {variant === 'past' ? (
+        <View style={styles.reviewHint}>
+          <Ionicons name="star-outline" size={15} color={colors.primary} />
+          <Text style={[styles.reviewHintText, { color: colors.primary }]}>Open to review</Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -418,6 +427,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: theme.spacing.md,
+  },
+  reviewHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    marginTop: theme.spacing.xs,
+  },
+  reviewHintText: {
+    fontSize: theme.fontSize.sm,
+    fontWeight: '800',
   },
   cardMeta: {
     fontSize: theme.fontSize.sm,
