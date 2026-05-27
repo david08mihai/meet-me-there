@@ -23,7 +23,7 @@ serve(async (req) => {
       return new Response("No push token found", { status: 400 });
     }
     console.log(data)
-
+    
     // trimite notificarea la Expo
     await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",

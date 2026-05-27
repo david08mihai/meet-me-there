@@ -1,5 +1,6 @@
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
+import { supabase } from "./supabase";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -10,6 +11,28 @@ Notifications.setNotificationHandler({
     shouldShowList: true,
   }),
 });
+
+export async function sendPushNotification(
+  receiverId: string,
+  title: string,
+  body: string
+) {
+  try {
+    const { error } = await supabase.functions.invoke("send-notification", {
+      body: { receiverId, title, body },
+    });
+
+    if (error) {
+      console.error("sendPushNotification error", error);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("sendPushNotification error", err);
+    return false;
+  }
+}
 
 export async function registerForPushNotificationsAsync() {
   if (!Device.isDevice) {
